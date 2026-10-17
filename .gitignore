@@ -1,0 +1,21 @@
+# Original source downloads and intermediate files, rebuilt by scripts/.
+raw-data/
+out/
+
+# Rendered pages. The site renders from source.
+index.html
+index_files/
+.quarto/
+_freeze/
+**/*.quarto_ipynb
+
+# Local only
+todo.md
+.claude/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.Rhistory
+.Rproj.user/
+Rplots.pdf

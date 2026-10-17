@@ -1,0 +1,11 @@
+---
+title: "The hairy chart"
+description: "The federal funds rate, and the paths that were expected for it at each past date."
+date: "2026-10-17"
+categories: [Project, Data Visualization]
+draft: true
+---
+
+Draft. Main write-up to come.
+
+- [R notebook](r/index.qmd)

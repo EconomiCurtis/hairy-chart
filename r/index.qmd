@@ -1,0 +1,689 @@
+---
+title: "The hairy chart"
+subtitle: "The federal funds rate and its expected paths, replicated in R"
+description: "Accessing the data and building the federal funds hairy chart in R, from four free sources of expected paths."
+date: "2026-10-17"
+categories: [Project, Data Visualization]
+draft: true
+listed: false
+toc: true
+toc-depth: 3
+format:
+  html:
+    code-fold: show
+    code-tools: true
+    code-overflow: wrap
+    fig-width: 11
+    fig-height: 5.5
+    fig-dpi: 150
+execute:
+  warning: false
+  message: false
+---
+
+This notebook walks through how to access the data and replicate the federal funds "hairy chart" in R. The hairy chart plots the federal funds rate over time and, at each past date, the path the rate was then expected to take, drawn as a thin line, or "hair".
+
+We'll load the federal funds target and effective rates, then four sources of expected paths: the Treasury forward curve, options on interest-rate futures, the FOMC's median projection, and the Survey of Professional Forecasters. Each source is described, sourced, loaded and plotted on its own, and the notebook ends with all four on one plot.
+
+It reads three CSVs from the repository's `data/` folder and nothing else. They are built by a separate Python pipeline in `scripts/`, which is not run here. Each section says where its source comes from and which script cleans it; download steps for all of them are in `scripts/README.md`.
+
+---
+
+## Setup
+
+Packages, the color palette, plot theme, the per-source labels and captions, and helper functions that the tables and plots below reuse.
+
+```{r}
+#| label: setup
+#| code-fold: true
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(scales)
+library(gt)
+
+RATE <- "#0B1B4A"
+RED <- "#C8102E"
+INK <- "#1B3A6B"
+INK_SOFT <- "#5C7599"
+GRID <- "#C9D6E6"
+BG <- "#FFFFFF"
+
+# Checked for separation under normal and color-blind vision.
+pal <- c(
+  treasury_forward = "#2E7DBF",
+  options_implied  = "#C8102E",
+  sep_median       = "#E08A1E",
+  spf_median       = "#8C1A8C"
+)
+
+src_label <- c(
+  treasury_forward = "Treasury forward curve",
+  options_implied  = "Options-implied (SOFR)",
+  sep_median       = "FOMC median projection",
+  spf_median       = "Professional forecasters"
+)
+
+# Named in the subtitle alongside the target rate.
+src_phrase <- c(
+  treasury_forward = "Treasury forward curves",
+  options_implied  = "options-implied SOFR paths",
+  sep_median       = "FOMC median projections",
+  spf_median       = "professional forecasters"
+)
+
+# Everything the subtitle does not carry.
+src_caption <- c(
+  treasury_forward = paste(
+    "%d hairs, one per FOMC meeting, running 36 months out. Forward rates carry a term",
+    "premium and are smooth by construction, so they cannot show discrete steps at FOMC meetings.",
+    "\nSource: Federal Reserve Board, GSW nominal yield curve."
+  ),
+  options_implied = paste(
+    "%d daily hairs. Mean of the risk-neutral distribution implied by CME options on",
+    "3-month SOFR futures. SOFR is a secured rate, not the federal funds rate.",
+    "\nSource: Federal Reserve Bank of Atlanta, Market Probability Tracker."
+  ),
+  sep_median = paste(
+    "%d hairs, one per quarterly projection round, dated to 31 December of each projection year.",
+    "The median of 19 participants' views of appropriate policy, not a forecast.",
+    "\nSource: Federal Reserve Board, Summary of Economic Projections."
+  ),
+  spf_median = paste(
+    "%d quarterly hairs, five points each. Median forecast of the 3-month Treasury bill rate,",
+    "which normally sits a little below the federal funds rate.",
+    "\nSource: Federal Reserve Bank of Philadelphia, Survey of Professional Forecasters."
+  )
+)
+
+theme_hairy <- function() {
+  theme_minimal(base_size = 12) +
+    theme(
+      plot.background = element_rect(fill = BG, color = NA),
+      panel.background = element_rect(fill = BG, color = NA),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.major.y = element_line(color = GRID, linewidth = 0.4),
+      axis.text = element_text(color = INK_SOFT),
+      axis.ticks.x = element_line(color = INK_SOFT, linewidth = 0.3),
+      axis.ticks.length.x = unit(4, "pt"),
+      axis.minor.ticks.length.x = rel(0.5),
+      axis.title = element_blank(),
+      plot.title = element_text(color = INK, face = "bold", size = 15),
+      plot.subtitle = element_text(color = INK_SOFT, size = 10.5),
+      plot.caption = element_text(color = INK_SOFT, size = 8, hjust = 0),
+      legend.title = element_blank(),
+      legend.text = element_text(color = INK, size = 9.5)
+    )
+}
+
+# Font family and size inherit from the page, so the tables match the body
+# text wherever the notebook is embedded.
+gt_basic <- function(d) {
+  gt(d) |>
+    tab_options(
+      table.font.names = "inherit",
+      table.font.size = "inherit",
+      table.background.color = BG,
+      column_labels.font.weight = "bold",
+      data_row.padding = px(5),
+      table.border.top.style = "none"
+    )
+}
+
+# One row per source: how many hairs, how many points each, how far apart the
+# points are, and how much time a typical hair covers.
+hair_summary <- function(d) {
+  per_hair <- d |>
+    arrange(as_of, target_date) |>
+    group_by(as_of) |>
+    summarise(
+      points = n(),
+      span = as.numeric(max(target_date) - min(target_date)),
+      step = median(as.numeric(diff(target_date))),
+      .groups = "drop"
+    )
+  step <- median(per_hair$step, na.rm = TRUE)
+  tibble(
+    Hairs = nrow(per_hair),
+    Points = nrow(d),
+    `Points per hair` = median(per_hair$points),
+    `Point spacing` = if (step < 45) "Monthly" else if (step < 120) "Quarterly" else "Yearly",
+    `Typical span (months)` = round(median(per_hair$span) / 30.44)
+  )
+}
+
+# Forecaster values are calendar-quarter averages, so those hairs are drawn as
+# steps, each value held across its quarter. The other sources are joined by
+# straight lines.
+step_sources <- "spf_median"
+
+# Plot-ready hairs for one source. Each hair starts on the target line at its
+# forecast date, reading the target one day later because FRED dates a change
+# from the day it takes effect, so a forecast made at an FOMC meeting starts
+# from that meeting's decision. Step sources get one row per quarter start,
+# clipped to the forecast date, plus the last quarter's end. Plotting only;
+# hairs.csv and the tables hold source points alone.
+hair_path <- function(h, src) {
+  anchors <- h |>
+    distinct(as_of) |>
+    mutate(
+      target_date = as_of,
+      rate_pct = ffr$target_mid[match(as_of + 1, ffr$date)]
+    ) |>
+    filter(!is.na(rate_pct))
+  points <- h |> select(as_of, target_date, rate_pct)
+  if (src %in% step_sources) {
+    last <- points |> group_by(as_of) |> slice_max(target_date, n = 1) |> ungroup()
+    points <- bind_rows(
+      points |> mutate(target_date = pmax(lubridate::floor_date(target_date, "quarter"), as_of)),
+      last |> mutate(target_date = lubridate::ceiling_date(target_date, "quarter"))
+    )
+  }
+  bind_rows(anchors, points)
+}
+
+hair_geom <- function(src, ...) {
+  if (src %in% step_sources) geom_step(direction = "hv", ...) else geom_line(...)
+}
+
+# Year axis: a label on round years every `every` years, a small tick each year.
+scale_x_years <- function(from, to, every = 5) {
+  years <- function(k) {
+    y0 <- ceiling(as.integer(format(from, "%Y")) / k) * k
+    as.Date(sprintf("%d-01-01", seq(y0, as.integer(format(to, "%Y")), by = k)))
+  }
+  scale_x_date(
+    breaks = years(every), minor_breaks = years(1),
+    labels = label_date("%Y"), guide = guide_axis(minor.ticks = TRUE)
+  )
+}
+
+# The two policy-rate lines, reused by the hair plots below. The target is
+# heavy, the effective rate thin and lighter behind it.
+rate_layers <- function(d) {
+  list(
+    geom_ribbon(
+      data = d, aes(date, ymin = target_lo, ymax = target_hi),
+      fill = GRID, alpha = 0.9
+    ),
+    geom_line(
+      data = d, aes(date, effr_ma1m),
+      color = RATE, linewidth = 0.35, alpha = 0.55, lineend = "round"
+    ),
+    geom_line(
+      data = d, aes(date, target_mid),
+      color = RATE, linewidth = 1.0, lineend = "round"
+    )
+  )
+}
+
+plot_source <- function(src, pad_years = 1) {
+  h <- hairs |> filter(source == src)
+  x0 <- min(h$as_of) - 365 * pad_years
+  x1 <- max(h$target_date) + 180
+  d <- ffr |> filter(date >= x0, date <= x1)
+  y_max <- max(c(h$rate_pct, d$target_hi), na.rm = TRUE) * 1.08
+
+  # Hair counts differ by a factor of twenty between sources, so a fixed alpha
+  # leaves the SEP plot faint and the options plot a solid block.
+  n <- n_distinct(h$as_of)
+  a <- max(0.08, min(0.55, 60 / n))
+
+  # Labels every 5, 2 or 1 years depending on how much time the plot spans.
+  span <- as.numeric(x1 - x0) / 365.25
+  every <- if (span > 20) 5 else if (span > 8) 2 else 1
+
+  ggplot() +
+    hair_geom(
+      src, data = hair_path(h, src), mapping = aes(target_date, rate_pct, group = as_of),
+      color = pal[[src]], alpha = a, linewidth = 0.4, lineend = "round"
+    ) +
+    rate_layers(d) +
+    scale_x_years(x0, x1, every) +
+    scale_y_continuous(labels = label_number(suffix = "%")) +
+    coord_cartesian(xlim = c(x0, x1), ylim = c(-0.3, y_max)) +
+    labs(
+      title = src_label[[src]],
+      subtitle = paste("Federal funds target rate and", src_phrase[[src]]),
+      caption = sprintf(src_caption[[src]], n)
+    ) +
+    theme_hairy()
+}
+```
+
+---
+
+## Data
+
+### Federal funds target rate
+
+::: {.callout-note collapse="true"}
+## Source detail: the FOMC target (click to expand)
+
+The rate the Federal Open Market Committee announces it is aiming for. A single number until December 2008, a quarter-point range from then on. The New York Fed: "The Federal Open Market Committee establishes the target rate, or range, for trading in the federal funds market."
+
+FRED `DFEDTAR` is the single target, 27 September 1982 to 15 December 2008. `DFEDTARL` and `DFEDTARU` are the lower and upper limits of the range from 16 December 2008, when the Committee cut to 0 to 0.25 per cent and has used a range ever since. Verified at the join: `DFEDTAR` ends 2008-12-15 at 1.00, `DFEDTARL`/`DFEDTARU` begin 2008-12-16 at 0.00/0.25.
+
+**Target vs Effective Fed Funds Rate.** The effective rate is what banks actually paid. Before 2008 it spiked hard at month, quarter and year ends, because the Fed hit its target through open market operations rather than by paying interest on reserves. On 1 July 1996 the effective rate printed 7.80 against a 5.25 target. The target has no such artifacts: it is a step function that only moves when the Committee moves it. Both are plotted, so the gap between intent and outcome stays visible. The effective rate shown is a 1-month moving average, which smooths those period-end spikes; the raw daily series is in the same file as `effr`.
+
+**Citations.**
+
+- <https://fred.stlouisfed.org/series/DFEDTAR>
+- <https://fred.stlouisfed.org/series/DFEDTARU>
+- <https://fred.stlouisfed.org/series/DFEDTARL>
+- <https://www.newyorkfed.org/markets/reference-rates/effr>
+:::
+
+Downloaded from the [FRED database](https://fred.stlouisfed.org/), series `DFEDTAR`, `DFEDTARL`, `DFEDTARU` and `DFF`, by `fetch_fred.py`. The series are assembled by `build_dataset.py`, which splices the pre-2008 single target into the range columns so `target_lo`, `target_hi` and `target_mid` run continuously across the December 2008 regime change, and carries values forward over weekends and holidays.
+
+```{r}
+#| label: load-ffr
+ffr <- read_csv("../data/fed_funds_rate.csv", show_col_types = FALSE) |>
+  filter(!is.na(target_mid)) |>
+  select(date, target_lo, target_hi, target_mid, effr, effr_ma1m)
+```
+
+```{r}
+#| label: tbl-ffr
+#| code-fold: true
+ffr |>
+  summarise(
+    From = format(min(date), "%b %Y"),
+    To = format(max(date), "%b %Y"),
+    Days = n(),
+    `Target changes` = sum(target_mid != lag(target_mid), na.rm = TRUE),
+    `Range era begins` = format(min(date[target_lo != target_hi]), "%d %b %Y")
+  ) |>
+  gt_basic()
+```
+
+With no hairs on this plot, the effective rate is drawn in red on top of the target so the gap between them is visible. Elsewhere it sits thin and light behind the target.
+
+```{r}
+#| label: fig-ffr
+ggplot() +
+  geom_ribbon(
+    data = ffr, aes(date, ymin = target_lo, ymax = target_hi),
+    fill = GRID, alpha = 0.9
+  ) +
+  geom_line(
+    data = ffr, aes(date, target_mid, color = "Target rate"),
+    linewidth = 1.0, lineend = "round"
+  ) +
+  geom_line(
+    data = ffr, aes(date, effr_ma1m, color = "Effective rate"),
+    linewidth = 0.45, lineend = "round"
+  ) +
+  scale_color_manual(
+    values = c("Target rate" = RATE, "Effective rate" = RED),
+    breaks = c("Target rate", "Effective rate"),
+    guide = guide_legend(override.aes = list(linewidth = c(1.0, 0.45)))
+  ) +
+  scale_x_years(min(ffr$date), max(ffr$date)) +
+  scale_y_continuous(labels = label_number(suffix = "%")) +
+  coord_cartesian(ylim = c(-0.3, 12)) +
+  labs(
+    title = "Federal funds rate",
+    subtitle = "Target rate and effective rate",
+    caption = paste(
+      "Shaded band is the target range, which only separates from the target",
+      "line after December 2008. Effective rate is a 1-month moving average.",
+      "\nSource: FRED (DFEDTAR, DFEDTARU, DFEDTARL, DFF)."
+    )
+  ) +
+  theme_hairy() +
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(0.99, 0.7),
+    legend.justification = c(1, 0.5),
+    legend.direction = "vertical",
+    legend.background = element_rect(fill = BG, color = NA)
+  )
+```
+
+---
+
+### Hairs
+
+"Hairs" here are the predicted paths of the federal funds rate, from different sources. All four live in one tidy table, loaded once here and described one at a time below.
+
+```{r}
+#| label: load-hairs
+# target_date carries a midnight time component in the CSV and parses as
+# POSIXct. Coerced to Date so it shares a scale with the rate series, and so
+# that adding a number adds days rather than seconds.
+hairs <- read_csv("../data/hairs.csv", show_col_types = FALSE) |>
+  mutate(
+    source = factor(source, levels = names(pal)),
+    across(c(as_of, target_date), as.Date)
+  )
+```
+
+```{r}
+#| label: tbl-hairs
+#| code-fold: true
+hairs |>
+  group_by(source) |>
+  summarise(
+    Hairs = n_distinct(as_of),
+    Points = n(),
+    From = format(min(as_of), "%b %Y"),
+    To = format(max(as_of), "%b %Y"),
+    .groups = "drop"
+  ) |>
+  mutate(Source = src_label[as.character(source)], .keep = "unused", .before = 1) |>
+  gt_basic()
+```
+
+---
+
+### Treasury forward curve
+
+::: {.callout-note collapse="true"}
+## Source detail: GSW nominal yield curve (click to expand)
+
+What the Treasury bond market implies about future short rates, backed out daily by Federal Reserve Board staff from a smooth curve fitted across the whole maturity spectrum.
+
+The Board describes the dataset as "smoothed yields on hypothetical Treasury securities that can be easily compared across maturities and over time, from 1961 to the present". "The shape of the yield curve on any given date can be adequately captured by a set of six parameters", estimated "by minimizing the discrepancy between the fitted Svensson yield curve and observed market yields". Before 1980 "the Nelson-Siegel model, a model with fewer parameters, was used".
+
+On what goes into the fit: "Only the coupon securities (Treasury notes and bonds) are used." Also "on-the-run and first-off-the-run Treasury notes and bonds are not used", and "Treasury bills and Treasury floating rate notes (FRNs) are not used".
+
+It is not an official statistic. The Board calls it "a staff research product and not an official statistical release". A forward rate is the expected future short rate *plus a term premium*, so these hairs sit above a pure expectations path. And because bills are excluded and the curve is a six-parameter analytic function, the hairs are smooth by construction: they cannot show the discrete steps at FOMC meetings that market data pricing individual meetings shows. That is the instrument, not the processing.
+
+**Citations.**
+
+- <https://www.federalreserve.gov/data/nominal-yield-curve.htm>
+- Gürkaynak, Sack and Wright (2006), FEDS 2006-28, <https://www.federalreserve.gov/pubs/feds/2006/200628/200628pap.pdf>
+- Published in *Journal of Monetary Economics* 54(8), 2007, 2291-2304
+:::
+
+Downloaded from the Federal Reserve Board's [nominal yield curve](https://www.federalreserve.gov/data/nominal-yield-curve.htm) data, as `feds200628.csv`. `build_gsw_hairs.py` skips the file's nine-line preamble and reads the curve parameters `BETA0` to `BETA3`, `TAU1` and `TAU2`. Before 1980 the Board fitted a simpler curve with four parameters (Nelson-Siegel) rather than six (Svensson), so those rows leave `BETA3` and `TAU2` blank. Setting `BETA3` to 0 reduces the six-parameter formula below to the four-parameter one, so a single formula covers every date; `TAU2` is set to 1 only to fill the blank, and has no effect once `BETA3` is 0. None of those early dates appear in the plots, which start in 1994. The script evaluates the instantaneous forward
+
+$$f(n) = \beta_0 + \beta_1 e^{-n/\tau_1} + \beta_2 \tfrac{n}{\tau_1} e^{-n/\tau_1} + \beta_3 \tfrac{n}{\tau_2} e^{-n/\tau_2}$$
+
+at monthly horizons out to 60 months, because the published `SVENF` columns only give whole years and the plot lives in the first three, then converts continuous to annual compounding. The recomputation reproduces the published whole-year columns to under 0.001 percentage points across 16,262 curve-days.
+
+`build_dataset.py` then samples the curve on FOMC meeting dates, taken from the Board's meeting calendars by `fetch_fomc_dates.py`. `build_long_hairs.py` writes the same hairs out to 120 months, for the length comparison below; the Board publishes the curve out to 30 years.
+
+```{r}
+#| label: src-treasury
+treasury_forward <- hairs |> filter(source == "treasury_forward")
+
+# The same hairs uncapped, for the length comparison only.
+treasury_long <- read_csv("../data/treasury_forward_120m.csv", show_col_types = FALSE)
+```
+
+```{r}
+#| label: tbl-treasury
+#| code-fold: true
+hair_summary(treasury_forward) |>
+  gt_basic()
+```
+
+What longer hairs for this series would look like, cut at 36, 60 and 120 months:
+
+```{r}
+#| label: fig-treasury-length
+#| fig-height: 12
+cuts <- c(36, 60, 120)
+
+long_cut <- lapply(cuts, function(k) {
+  hair_path(treasury_long |> filter(horizon_months <= k), "treasury_forward") |>
+    mutate(length = sprintf("%d months (%g years)", k, k / 12))
+}) |>
+  bind_rows() |>
+  mutate(length = factor(length, levels = unique(length)))
+
+ggplot() +
+  geom_line(
+    data = long_cut, aes(target_date, rate_pct, group = as_of),
+    color = pal[["treasury_forward"]], alpha = 0.25, linewidth = 0.3, lineend = "round"
+  ) +
+  rate_layers(ffr |> filter(date >= as.Date("1993-01-01"))) +
+  facet_wrap(~length, ncol = 1) +
+  scale_x_years(as.Date("1993-01-01"), as.Date("2036-12-31")) +
+  scale_y_continuous(labels = label_number(suffix = "%"), breaks = seq(0, 10, 2)) +
+  coord_cartesian(
+    xlim = as.Date(c("1993-01-01", "2036-12-31")),
+    ylim = c(-0.3, 9.5)
+  ) +
+  labs(
+    title = "Treasury forward curve, three hair lengths",
+    subtitle = "Federal funds target rate and Treasury forward curves",
+    caption = sprintf(
+      "%d hairs, one per FOMC meeting since 1994.\nSource: Federal Reserve Board, GSW nominal yield curve.",
+      n_distinct(treasury_long$as_of)
+    )
+  ) +
+  theme_hairy() +
+  theme(
+    strip.text = element_text(color = INK, face = "bold", hjust = 0, size = 11),
+    panel.spacing.y = unit(1.2, "lines")
+  )
+```
+
+Hairs are cut at 36 months for legibility. I personally like the long fan rising out of the 2009 to 2015 floor: the market repeatedly pricing a liftoff that did not arrive.
+
+```{r}
+#| label: fig-treasury
+plot_source("treasury_forward")
+```
+
+---
+
+### Options-implied (SOFR)
+
+::: {.callout-note collapse="true"}
+## Source detail: Atlanta Fed Market Probability Tracker (click to expand)
+
+What options traders are collectively betting, as a full probability distribution over where the overnight rate will average in a future three-month window.
+
+From the data dictionary shipped inside the file: "The Market Probability Tracker uses Chicago Mercantile Exchange (CME) 3-month SOFR options to estimate the probability ditributions implied by their prices and specified reference window." (Typo in the original.) Their guide adds that it "transforms options on SOFR futures prices into probability distribution values".
+
+Two fields are used. `reference_start` is the "Start date of the 3-month window referenced by CME 3-month SOFR contracts". `Rate: mean` is "The rate, in basis points, associated with the mean of the estimated distribution for a given reference window".
+
+The underlying rate is SOFR, the Secured Overnight Financing Rate, published by the [Federal Reserve Bank of New York](https://www.newyorkfed.org/markets/reference-rates/sofr): a broad measure of the cost of borrowing cash overnight collateralized by U.S. Treasury securities. That makes it a secured rate, where the federal funds rate is unsecured lending between banks; the two are close but not identical. An option-implied distribution is risk-neutral, so it is what traders expect weighted by how much they care about being wrong each way, not literally what they expect. It starts in March 2023.
+
+Unlike the Treasury curve, each point comes from that window's own option prices rather than from one fitted curve. Each value is an average over a three-month window, weighted across possible outcomes, so the hairs do not resolve individual FOMC meetings.
+
+**Citations.**
+
+- <https://www.atlantafed.org/research-and-data/data/market-probability-tracker>
+- <https://www.atlantafed.org/research-and-data/data/market-probability-tracker/what-to-know>
+- <https://www.newyorkfed.org/markets/reference-rates/sofr>
+- Estimation code published as `mpt_source.zip` on the tracker page
+:::
+
+These hairs come from options on SOFR (Secured Overnight Financing Rate) futures. A SOFR futures contract settles on where SOFR averages over a future three-month window; options on that contract, across a range of strike prices, imply a probability distribution for the average. The Atlanta Fed estimates those distributions daily, and each hair is the mean of the distribution for each successive window, as of one day.
+
+Downloaded from the Federal Reserve Bank of Atlanta's [Market Probability Tracker](https://www.atlantafed.org/research-and-data/data/market-probability-tracker), as `mpt_histdata.xlsx`. `build_dataset.py` takes the `DATA` sheet, keeps `field == "Rate: mean"`, divides by 100 to turn basis points into per cent, and places each point at the midpoint of its reference window, which is `reference_start` plus 45 days.
+
+```{r}
+#| label: src-options
+options_implied <- hairs |> filter(source == "options_implied")
+```
+
+```{r}
+#| label: tbl-options
+#| code-fold: true
+hair_summary(options_implied) |>
+  gt_basic()
+```
+
+Each point is the expected average over a three-month window, plotted at the window's midpoint.
+
+```{r}
+#| label: fig-options
+plot_source("options_implied")
+```
+
+---
+
+### FOMC median projection
+
+::: {.callout-note collapse="true"}
+## Source detail: the Summary of Economic Projections (click to expand)
+
+Four times a year each of the 19 senior Federal Reserve policymakers writes down where they think the federal funds rate *should* be at the end of each of the next few years. This is the middle answer.
+
+The table is titled "Economic projections of Federal Reserve Board members and Federal Reserve Bank presidents, under their individual assumptions of projected appropriate monetary policy": all 7 Governors plus all 12 Reserve Bank presidents. That is wider than the Committee's voting membership, which the Board describes as "twelve members, the seven members of the Board of Governors of the Federal Reserve System; the president of the Federal Reserve Bank of New York; and four of the remaining eleven Reserve Bank presidents, who serve one-year terms on a rotating basis". Staff produce a separate forecast, the Tealbook, released only after five years.
+
+From the table notes: "The projections for the federal funds rate are the value of the midpoint of the projected appropriate target range for the federal funds rate or the projected appropriate target level for the federal funds rate at the end of the specified calendar year or over the longer run." And: "For each period, the median is the middle projection when the projections are arranged from lowest to highest."
+
+It is not a forecast. The row is labelled "Memo: Projected appropriate policy path", and projections rest on each participant's "assessment of appropriate monetary policy". Normative, conditional on each person's own outlook, and never voted on.
+
+Only 43 of 58 releases give a median. The median column was introduced with the September 2015 SEP; before that the table shows a central tendency and range only, and the dots exist solely as a figure.
+
+**Citations.**
+
+- `https://www.federalreserve.gov/monetarypolicy/files/fomcprojtabl{YYYYMMDD}.pdf`
+- <https://www.federalreserve.gov/monetarypolicy/fomc.htm>
+- <https://fred.stlouisfed.org/series/FEDTARMD>
+:::
+
+Downloaded from the Federal Reserve Board, one projection-table PDF per meeting, by `fetch_forecasts.py`, and parsed by `parse_sep.py`. The 58 meeting dates come from FRED's `FEDTARMDLR`, so the calendar is not scraped. Parsing is awkward for two reasons: the PDF extractor strips spaces out of row labels in some vintages, so "Federal funds rate" arrives as "Federalfundsrate"; and the number of projection years changes over time, so the year headers are read off each table rather than assumed, including vintages that wrap the header across lines. Medians are the leading run of plain decimals on the row, since the central tendency and range that follow are written as en-dash ranges. `build_dataset.py` places each value at 31 December of its projection year and drops the longer-run value, which has no date. Cross-checked against FRED `FEDTARMD` and `FEDTARMDLR`: the most recent meeting matches exactly.
+
+```{r}
+#| label: src-sep
+sep_median <- hairs |> filter(source == "sep_median")
+```
+
+```{r}
+#| label: tbl-sep
+#| code-fold: true
+hair_summary(sep_median) |>
+  gt_basic()
+```
+
+Four points per hair at most, one per projection year, dated to 31 December.
+
+```{r}
+#| label: fig-sep
+plot_source("sep_median")
+```
+
+---
+
+### Professional forecasters
+
+::: {.callout-note collapse="true"}
+## Source detail: Survey of Professional Forecasters (click to expand)
+
+Every quarter the Philadelphia Fed asks a few dozen professional forecasters where the three-month Treasury bill rate will be over the next five quarters, and publishes the median.
+
+The Philadelphia Fed describes it as "the oldest quarterly survey of macroeconomic forecasts in the United States. The survey began in 1968 and was conducted by the American Statistical Association and the National Bureau of Economic Research. The Federal Reserve Bank of Philadelphia took over the survey in 1990." Individual responses are "kept confidential by using identification numbers".
+
+`TBILL` is the three-month Treasury bill rate in percentage points, and "Quarterly forecasts are for the quarterly average of the underlying daily levels". Each point is a forecast of a quarterly average, not a point-in-time rate.
+
+The horizon numbering is easy to get wrong. "The number '1' represents the 'forecast' for the quarter prior to the quarter in which the survey is conducted. The forecasters know the values of the variables for this quarter at the time they submit their projections." Then "The number '2' represents the forecast for the current quarter", and "The numbers '3' through '6' represent the forecasts for the four quarters after the current quarter."
+
+The three-month bill is not the federal funds rate: it is secured, government, and at a three-month tenor, and normally sits somewhat below fed funds. It is a survey rather than a price, so it carries no money and is not a market expectation. It is the longest-running source here, and the only one covering the 1980s.
+
+**Citations.**
+
+- <https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/survey-of-professional-forecasters>
+- Documentation PDF: variable definitions p.10, horizon numbering p.20, survey timing p.7
+:::
+
+Downloaded from the Federal Reserve Bank of Philadelphia's [Survey of Professional Forecasters](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/survey-of-professional-forecasters) page, as `median_tbill_level.xlsx`, by `fetch_forecasts.py`. `build_dataset.py` cleans it, and two steps matter. `TBILL1` is dropped, because it refers to the quarter *before* the survey, whose value forecasters already know, so it is not a forecast. Horizons therefore run `TBILL2` at 0 quarters ahead through `TBILL6` at 4. Each hair is dated at the response deadline, the middle of the second month of the quarter, since that is when the forecaster's information set closes. An earlier pass treated `TBILL1` as the current quarter, which shifted every hair a quarter early and plotted a known value as a prediction.
+
+```{r}
+#| label: src-spf
+spf_median <- hairs |> filter(source == "spf_median")
+```
+
+```{r}
+#| label: tbl-spf
+#| code-fold: true
+hair_summary(spf_median) |>
+  gt_basic()
+```
+
+Five quarterly averages per hair, each drawn as a step across its quarter, covering about a year. The only source reaching the 1980s, and the reason the combined plot's y-axis runs to 16 per cent.
+
+```{r}
+#| label: fig-spf
+plot_source("spf_median")
+```
+
+---
+
+### Other sources
+
+Other data on expected federal funds rates exist. The most direct are fed funds futures, exchange-traded contracts whose prices imply the market's expected average federal funds rate for each coming month, and overnight index swap (OIS) curves, which do the same through swap contracts. Both price individual FOMC meetings, so their paths step rather than move smoothly, and they are the usual basis for this plot in market commentary. These series are not free (which is why they aren't included in this notebook, I couldn't even find them in a spot where I could just steal the data): it requires payment, through vendors such as Bloomberg, LSEG (Refinitiv), CME DataMine or Databento.
+
+The four sources above are free stand-ins for them.
+
+---
+
+## The *Very* Hairy Plot
+
+All four sources at once, against the target rate.
+
+```{r}
+#| label: fig-hairy
+#| fig-height: 6.5
+hair_layer <- function(src, alpha, linewidth) {
+  hair_geom(
+    src,
+    data = hair_path(hairs |> filter(source == src), src) |> mutate(source = src),
+    mapping = aes(target_date, rate_pct, group = as_of, color = source),
+    alpha = alpha, linewidth = linewidth, lineend = "round"
+  )
+}
+
+ggplot() +
+  hair_layer("spf_median", 0.40, 0.35) +
+  hair_layer("treasury_forward", 0.25, 0.30) +
+  hair_layer("options_implied", 0.09, 0.25) +
+  hair_layer("sep_median", 0.55, 0.45) +
+  rate_layers(ffr) +
+  scale_color_manual(
+    values = pal, labels = src_label, breaks = names(pal),
+    guide = guide_legend(override.aes = list(alpha = 1, linewidth = 1.4))
+  ) +
+  scale_x_years(as.Date("1981-06-01"), as.Date("2029-12-31")) +
+  scale_y_continuous(labels = label_number(suffix = "%"), breaks = seq(0, 16, 2)) +
+  coord_cartesian(
+    xlim = c(as.Date("1981-06-01"), as.Date("2029-12-31")),
+    ylim = c(-0.3, 16)
+  ) +
+  labs(
+    title = "The hairy plot",
+    subtitle = "US federal funds target rate, and the paths expected for it at the time",
+    caption = paste(
+      "Sources: Federal Reserve Board (GSW nominal yield curve, SEP);",
+      "Federal Reserve Bank of Atlanta (Market Probability Tracker);",
+      "Federal Reserve Bank of Philadelphia (SPF); FRED.\nFed funds futures",
+      "and OIS curves require paid data and are not included."
+    )
+  ) +
+  theme_hairy() +
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(0.995, 0.985),
+    legend.justification = c(1, 1),
+    legend.direction = "vertical",
+    legend.background = element_rect(fill = BG, color = NA),
+    legend.key.spacing.y = unit(1, "pt")
+  )
+```
+
+---
+
+## Notes
+
+### Where does each hair start?
+
+Each hair starts on the target line at the date its forecast was made, since the rate is known then, and runs from there to the source's first forecast; that first stretch is drawn, not forecast. A jump at the start of a hair reflects what the source measures, Treasury yields, SOFR or the three-month bill rather than the target itself.
+
+---
+
+## Session
+
+```{r}
+#| label: session
+#| code-fold: true
+sessionInfo()
+```
