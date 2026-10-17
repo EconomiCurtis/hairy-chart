@@ -60,7 +60,8 @@ def main() -> int:
         }))
     d = pd.concat(frames, ignore_index=True).sort_values(["as_of", "horizon_months"])
 
-    path = OUT / "treasury_forward_120m.csv"
+    DATA.mkdir(parents=True, exist_ok=True)
+    path = DATA / "treasury_forward_120m.csv"
     d.to_csv(path, index=False)
     print(f"wrote {path.name}: {d['as_of'].nunique()} hairs, "
           f"{len(d):,} rows, horizons 1 to {MAX_MONTHS} months")

@@ -1,8 +1,7 @@
 ---
 title: "The hairy chart"
-subtitle: "The federal funds rate and its expected paths, replicated in R"
-description: "Accessing the data and building the federal funds hairy chart in R, from four free sources of expected paths."
-date: "2026-10-17"
+description: "The federal funds rate and its expected paths, replicated in R."
+date: "2026-10-01"
 categories: [Project, Data Visualization]
 draft: true
 listed: false
@@ -25,7 +24,7 @@ This notebook walks through how to access the data and replicate the federal fun
 
 We'll load the federal funds target and effective rates, then four sources of expected paths: the Treasury forward curve, options on interest-rate futures, the FOMC's median projection, and the Survey of Professional Forecasters. Each source is described, sourced, loaded and plotted on its own, and the notebook ends with all four on one plot.
 
-It reads three CSVs from the repository's `data/` folder and nothing else. They are built by a separate Python pipeline in `scripts/`, which is not run here. Each section says where its source comes from and which script cleans it; download steps for all of them are in `scripts/README.md`.
+The notebook doesn't walk through the full steps to load and clean the original data, but describes that process in sourcing callout (there's sometimes a lot to that, including parsing .pdf files of meeting minutes). You can check the  repo's `data/` folder the nitty-gritty steps I took. They are built by a separate Python pipeline in `scripts/`. Each section says where its source comes from and which script cleans it; download steps for all of them are in `scripts/README.md`.
 
 ---
 
@@ -257,6 +256,8 @@ plot_source <- function(src, pad_years = 1) {
 ## Data
 
 ### Federal funds target rate
+
+In a sense, this is the head from which all the hairs grow. 
 
 ::: {.callout-note collapse="true"}
 ## Source detail: the FOMC target (click to expand)

@@ -1,10 +1,10 @@
 # Source documentation
 
-What each series in `out/trunk.csv` and `out/hairs.csv` actually is, in the publisher's own words where possible, with citations. Quoted text is marked and attributed. Everything else is paraphrase.
+What each series in `data/fed_funds_rate.csv` and `data/hairs.csv` actually is, in the publisher's own words where possible, with citations. Quoted text is marked and attributed. Everything else is paraphrase.
 
 Every source here is published by the Federal Reserve System: the Board of Governors, or the Reserve Banks of New York, Atlanta, Philadelphia and St. Louis. All of it is free and none of it requires an account.
 
-Operational instructions for downloading are in [raw-data/getting-data.md](raw-data/getting-data.md). This file is about what the numbers mean.
+Operational instructions for downloading are in [scripts/README.md](scripts/README.md). This file is about what the numbers mean.
 
 ---
 
@@ -20,7 +20,7 @@ Operational instructions for downloading are in [raw-data/getting-data.md](raw-d
 
 **Technical detail.** FRED series `DFF`, daily, per cent per annum, from 1 July 1954. Weekends and holidays carry the previous business day's value forward, which is why the file has 26,356 rows rather than a count of business days. `effr_ma1m` is our own 30-calendar-day trailing mean, not a published series.
 
-**Caveat that matters for this chart.** Before 2008 the Fed hit its target through open market operations rather than by paying interest on reserves, and the daily rate ran well away from target at month, quarter and year ends when banks squared their books. Across 1996 to 1999 the daily rate sits within half a point of target on 96.6 per cent of days, but the exceptions are large: 7.80 per cent on 1 July 1996 against a 5.25 target. See `out/trunk_comparison.png`. This is why JPMorgan's version of the hairy chart plots a one-month moving average.
+**Caveat that matters for this chart.** Before 2008 the Fed hit its target through open market operations rather than by paying interest on reserves, and the daily rate ran well away from target at month, quarter and year ends when banks squared their books. Across 1996 to 1999 the daily rate sits within half a point of target on 96.6 per cent of days, but the exceptions are large: 7.80 per cent on 1 July 1996 against a 5.25 target. This is why JPMorgan's version of the hairy chart plots a one-month moving average.
 
 **Citations.**
 - <https://www.newyorkfed.org/markets/reference-rates/effr>
@@ -175,4 +175,4 @@ The Adrian, Crump and Moench decomposition of Treasury yields into an expected-s
 
 ## What is not here
 
-Fed funds futures, the instrument The Economist, Apollo and BofA actually plotted, and OIS forward curves, which is what JPMorgan plotted. Both need a paid feed. `todo.md` lists five manual routes and what each would buy.
+Fed funds futures, the instrument The Economist, Apollo and BofA actually plotted, and OIS forward curves, which is what JPMorgan plotted. Both need a paid feed, through vendors such as Bloomberg, LSEG (Refinitiv), CME DataMine or Databento.
