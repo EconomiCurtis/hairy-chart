@@ -53,6 +53,26 @@ check(JSON.stringify(chipKeys) === JSON.stringify(seriesKeys), 'one legend butto
 for (const k of seriesKeys.concat('target', 'recessions')) {
   check(markup.includes(`class="ha-callout" data-series="${k}"`), `notes have a callout for ${k}`);
 }
+// A ::: left out of text.qmd doesn't fail the build: pandoc nests every later
+// callout inside the open one. Walk the notes' divs and count any callout that
+// opens while another is still open.
+{
+  const start = markup.indexOf('<details class="ha-notes">');
+  const notes = markup.slice(start, markup.indexOf('</details>', start));
+  let depth = 0, nested = 0;
+  const open = [];  // the depth each open callout started at
+  for (const [tag] of notes.matchAll(/<div\b[^>]*>|<\/div>/g)) {
+    if (tag.startsWith('</')) {
+      depth--;
+      if (open.length && open[open.length - 1] === depth) open.pop();
+    } else {
+      if (/class="ha-callout"/.test(tag)) { if (open.length) nested++; open.push(depth); }
+      depth++;
+    }
+  }
+  check(nested === 0 && depth === 0, 'no note is nested inside another', `${nested} nested`);
+}
+check(/href="\.\.\/"/.test(markup), 'notes link the blog post');
 check(markup.indexOf('class="ha-key"') < markup.indexOf('class="ha-chip"'), 'target rate is listed first');
 check(/<button type="button" class="ha-chip" data-rec aria-pressed="false">/.test(markup), 'recessions button is there, and off');
 check(markup.lastIndexOf('class="ha-chip" data-s=') < markup.indexOf('class="ha-chip" data-rec'), 'recessions come last');

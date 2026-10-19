@@ -103,7 +103,7 @@ There's something funny about looking at all those hairs. Each one represents a 
 
 ### Why Hairy Charts Are Interesting
 
-These plots really drive home how badly we forecast metrics that matter a lot to us.
+For starters, so many of these plots you see in the wild really drive home how badly we forecast metrics that matter a lot to us.
 
 Take the federal funds rate. There are plenty of ways to forecast it. You can survey experts, including Fed officials and professional forecasters, or infer market expectations from interest rate futures, options, and other financial instruments. And there's plenty of incentive to get it right. This one rate influences borrowing costs across the economy, investment decisions, asset prices, the cost of financing the US government’s debt and so much more. 
 
@@ -143,7 +143,7 @@ And, quite apart from what they tell us about forecasting, I think hairy charts 
 
 [![](plots/interactive.jpg){fig-alt="Screenshot of the interactive hairy plot."}](interactive/index.qmd)
 
-Here's an [interactive version](interactive/index.qmd) of the hairy plot for the fed funds rate. I get into the four forecast series below. Zoom into any stretch of years, show or hide each series and recession shading, and hover over or tap any hair to see the forecast it made.
+Here's an [interactive version](interactive/index.qmd) of the hairy plot for the fed funds rate.  Zoom into any stretch of years, show or hide each series and recession shading, and hover over or tap any hair to see the forecast it made. I get into the four forecast series below.
 
 
 ## How to Make the Hairy Chart

@@ -20,12 +20,15 @@ Paragraphs are never hard-wrapped (one paragraph is one line), and no em-dashes.
 
 ## Notes
 
+Read more about hairy plots, and how this one was made, in the blog post [The Hairy Chart](../).
+
 ::: {.ha-callout data-series="target"}
 **Federal Funds Target Rate.** The rate the Federal Open Market Committee announces it is aiming for. A single number until December 2008, a quarter-point range from then on; the line marks the middle of the range.
 :::
 
 ::: {.ha-callout data-series="treasury_forward"}
 **Treasury Forward Curve.** What the Treasury bond market implies about future short rates, backed out daily by Federal Reserve Board staff from a smooth curve fitted across the whole maturity spectrum. A forward rate is the expected future short rate plus a term premium, so it is not a pure expectation. One hair per FOMC meeting, since 1994.
+:::
 
 ::: {.ha-callout data-series="options_implied"}
 **Options-Implied (SOFR).** What options traders are collectively betting, as a full probability distribution over where the overnight rate will average in a future three-month window. Each hair is the mean for each upcoming window, as of one day. Daily since March 2023.
