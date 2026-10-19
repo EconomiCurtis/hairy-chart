@@ -1,0 +1,790 @@
+<style>
+/* Every rule sits under #hairy-app, so the page around it keeps its own styles
+   and its styles mostly stay out of here. The card is always light, like the
+   notebooks' figures, in either site theme. */
+#hairy-app{--ink:#1B3A6B;--ink-soft:#5C7599;--line:#C9D6E6;--card:#FFFFFF;--wash:#F4F7FB;
+  color:var(--ink);margin:1.25rem 0 2rem;
+  font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-text-size-adjust:100%;text-size-adjust:100%}
+#hairy-app *,#hairy-app *::before,#hairy-app *::after{box-sizing:border-box}
+#hairy-app [hidden]{display:none !important}
+#hairy-app .ha-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 18px 12px}
+
+#hairy-app .ha-title{font-size:19px;font-weight:700;letter-spacing:-.01em;line-height:1.25;margin:0;color:var(--ink)}
+#hairy-app .ha-sub{font-size:13.5px;color:var(--ink-soft);margin:2px 0 14px;line-height:1.35}
+
+/* ---- legend: one toggle button per series ----
+   Buttons, not divs with listeners: iOS Safari only sends taps to elements it
+   considers clickable. A shown series has a filled box with a check; a hidden
+   one keeps its place with a hollow box, dashed outline and struck-through
+   name, so it reads as off and stays findable. */
+#hairy-app .ha-label{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-soft);font-weight:600;margin:0 0 6px}
+#hairy-app .ha-label span{text-transform:none;letter-spacing:0;font-weight:400}
+#hairy-app .ha-legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:0}
+#hairy-app .ha-chip{appearance:none;-webkit-appearance:none;margin:0;display:inline-flex;align-items:center;gap:7px;
+  font:inherit;font-size:13px;line-height:1.2;color:var(--ink);background:var(--card);
+  border:1px solid var(--line);border-radius:7px;padding:6px 10px 6px 8px;cursor:pointer;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:border-color .12s,background-color .12s}
+#hairy-app .ha-box{width:14px;height:14px;border-radius:3px;border:2px solid var(--c);background:var(--c);
+  display:inline-grid;place-items:center;flex:0 0 auto}
+#hairy-app .ha-box::after{content:"";width:7px;height:4px;border:solid #fff;border-width:0 0 2px 2px;
+  transform:translateY(-1px) rotate(-45deg)}
+/* Recessions get a light gray box, like the shading they switch on. */
+#hairy-app .ha-chip[data-rec] .ha-box{background:#E3E8EE;border-color:#9AA6B5}
+#hairy-app .ha-chip[data-rec] .ha-box::after{border-color:var(--ink-soft)}
+#hairy-app .ha-chip[aria-pressed="false"]{color:var(--ink-soft);border-style:dashed;background:transparent}
+#hairy-app .ha-chip[aria-pressed="false"] .ha-box{background:transparent}
+#hairy-app .ha-chip[aria-pressed="false"] .ha-box::after{display:none}
+#hairy-app .ha-chip[aria-pressed="false"] .ha-name{text-decoration:line-through;text-decoration-thickness:1px}
+#hairy-app .ha-chip:focus-visible,#hairy-app .ha-reset:focus-visible,#hairy-app .ha-showall:focus-visible{
+  outline:none;border-color:var(--ink);box-shadow:0 0 0 3px var(--line)}
+#hairy-app .ha-key{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-soft);padding:6px 4px}
+#hairy-app .ha-key i{display:block;width:18px;height:3px;border-radius:2px;background:#0B1B4A}
+#hairy-app .ha-showall{appearance:none;-webkit-appearance:none;margin:0;font:inherit;font-size:12.5px;font-weight:600;
+  color:var(--ink);background:transparent;border:0;border-radius:6px;padding:6px 6px;cursor:pointer;
+  text-decoration:underline;text-underline-offset:3px;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+
+/* ---- zoom bar: what a drag does, or what is zoomed and how to undo it ---- */
+#hairy-app .ha-zoombar{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;font-size:12.5px;
+  color:var(--ink-soft);min-height:34px;margin:8px 0 2px}
+#hairy-app .ha-zoomed{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px}
+#hairy-app .ha-range{color:var(--ink);font-weight:600}
+#hairy-app .ha-reset{appearance:none;-webkit-appearance:none;margin:0;font:inherit;font-size:12.5px;font-weight:600;
+  cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:6px;
+  padding:4px 11px;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#hairy-app .ha-aside{font-size:12px}
+/* Hints for a mouse or for a finger. Neither query matching shows both. */
+@media (hover:none){#hairy-app .ha-mouse{display:none}}
+@media (hover:hover){#hairy-app .ha-touch{display:none}}
+/* Hover styles only where hover exists, so a tap on a phone leaves no sticky
+   highlight behind. */
+@media (hover:hover){
+  #hairy-app .ha-chip:hover{border-color:var(--ink-soft)}
+  #hairy-app .ha-reset:hover{background:var(--ink);color:var(--card);border-color:var(--ink)}
+}
+@media (pointer:coarse){
+  #hairy-app .ha-chip{padding:9px 11px 9px 9px}
+  #hairy-app .ha-reset{padding:7px 13px}
+}
+
+/* ---- the plot ----
+   touch-action:pan-y lets a vertical swipe scroll the page past the plot,
+   while a sideways drag stays with the page's own handlers for zooming. It
+   also turns off the browser's double-tap zoom here, so a double tap can mean
+   "reset zoom". */
+#hairy-app .ha-stage{position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#hairy-app .ha-stage canvas{display:block;width:100%;height:360px;touch-action:pan-y;cursor:crosshair;
+  -webkit-tap-highlight-color:transparent}
+#hairy-app .ha-brush{position:absolute;top:0;left:0;width:0;pointer-events:none;
+  background:rgba(27,58,107,.10);border-left:1.5px dashed var(--ink);border-right:1.5px dashed var(--ink)}
+/* pointer-events:none always, even while showing: the tooltip must never sit
+   between a finger and the plot. */
+#hairy-app .ha-tip{position:absolute;left:0;top:0;z-index:5;pointer-events:none;opacity:0;transition:opacity .12s;
+  background:var(--ink);color:#fff;border-radius:8px;padding:9px 11px 7px;font-size:12.5px;line-height:1.4;
+  box-shadow:0 6px 20px rgba(11,27,74,.28);font-variant-numeric:tabular-nums;width:max-content;max-width:280px}
+#hairy-app .ha-tip.on{opacity:1}
+#hairy-app .ha-tip-h{display:flex;align-items:center;gap:7px;font-weight:650;font-size:13px}
+#hairy-app .ha-tip-h i{width:10px;height:10px;border-radius:2px;flex:0 0 auto;box-shadow:0 0 0 1.5px rgba(255,255,255,.85)}
+#hairy-app .ha-tip-m{color:#DCE6F2;margin:1px 0 0}
+#hairy-app .ha-tip-k{color:#B9C9DD;font-size:11.5px;margin:0 0 5px}
+#hairy-app .ha-tip-r{display:flex;justify-content:space-between;gap:18px;border-top:1px solid rgba(201,214,230,.2);padding:2px 0}
+#hairy-app .ha-tip-r b{font-weight:600}
+#hairy-app .ha-tip-f{color:#B9C9DD;font-size:11px;margin:4px 0 0}
+
+#hairy-app .ha-sources{font-size:12px;color:var(--ink-soft);margin:8px 0 0;line-height:1.45}
+
+/* ---- notes: one collapsed panel ---- */
+#hairy-app details.ha-notes{margin:12px 0 0;border-top:1px solid var(--line)}
+#hairy-app details.ha-notes>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:9px;
+  font-size:13px;font-weight:650;color:var(--ink);padding:10px 2px 6px;-webkit-tap-highlight-color:transparent}
+#hairy-app details.ha-notes>summary::-webkit-details-marker{display:none}
+#hairy-app details.ha-notes>summary::before{content:"";width:7px;height:7px;flex:0 0 auto;border:solid var(--ink-soft);
+  border-width:0 2px 2px 0;transform:rotate(-45deg);transition:transform .15s}
+#hairy-app details.ha-notes[open]>summary::before{transform:rotate(45deg)}
+#hairy-app details.ha-notes>summary span{font-weight:400;color:var(--ink-soft)}
+#hairy-app .ha-notes-body{font-size:13px;line-height:1.5;color:var(--ink-soft);padding:4px 0 6px}
+#hairy-app .ha-notes-body p{margin:0 0 9px}
+#hairy-app .ha-notes-body a{color:var(--ink);text-decoration:underline;text-underline-offset:2px}
+#hairy-app .ha-notes-body strong{color:var(--ink)}
+#hairy-app .ha-callout{border-left:3px solid var(--c,var(--line));background:var(--wash);border-radius:0 6px 6px 0;
+  padding:8px 12px;margin:0 0 8px}
+#hairy-app .ha-callout p{margin:0}
+__SERIES_CSS__
+
+@media (max-width:560px){
+  #hairy-app .ha-card{padding:14px 12px 8px;border-radius:8px}
+  #hairy-app .ha-title{font-size:17px}
+  /* Two chips to a row, names wrapping inside them, so the legend takes two
+     short rows on a phone instead of four. */
+  #hairy-app .ha-legend{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  #hairy-app .ha-chip{font-size:12.5px;text-align:left;min-height:44px;padding:6px 8px}
+  #hairy-app .ha-key{padding:2px 4px}
+}
+</style>
+
+<div id="hairy-app">
+<div class="ha-card">
+  <!-- A div rather than a heading, so the host page's heading styles and
+       anchor links leave it alone. -->
+  <div class="ha-title">__TITLE__</div>
+  <p class="ha-sub">__SUBTITLE__</p>
+
+  <div class="ha-label" id="ha-series-label">Series <span>&middot; tap or click a name to show or hide it</span></div>
+  <div class="ha-legend" role="group" aria-labelledby="ha-series-label">
+      <span class="ha-key"><i aria-hidden="true"></i>Target rate</span>
+__LEGEND__
+      <button type="button" class="ha-showall" id="ha-showall" hidden>Show all</button>
+  </div>
+
+  <div class="ha-zoombar">
+    <span id="ha-idle">
+      <span class="ha-mouse">Drag across the plot to zoom in on a stretch of time. Hover a line for details, or click it to keep them open.</span>
+      <span class="ha-touch">Drag sideways across the plot to zoom in. Tap a line for details.</span>
+    </span>
+    <span class="ha-zoomed" id="ha-zoomed" hidden>
+      <span class="ha-range" id="ha-range"></span>
+      <button type="button" class="ha-reset" id="ha-reset">Reset zoom</button>
+      <span class="ha-aside ha-mouse">or double-click the plot</span>
+      <span class="ha-aside ha-touch">or double-tap the plot</span>
+    </span>
+  </div>
+
+  <div class="ha-stage" id="ha-stage">
+    <canvas id="ha-canvas" role="img" aria-label="Line plot of the US federal funds target rate since 1982, with thin lines branching off it for the rate paths expected at each past date, from four sources."></canvas>
+    <div class="ha-brush" id="ha-brush" hidden></div>
+    <div class="ha-tip" id="ha-tip"></div>
+  </div>
+
+  <p class="ha-sources" id="ha-sources"></p>
+
+  <details class="ha-notes">
+    <summary>Notes and Sources</summary>
+    <div class="ha-notes-body">
+__NOTES__
+    </div>
+  </details>
+</div>
+</div>
+
+<script>
+window.HAIRY_BUILD = '__BUILD__';
+(() => {
+'use strict';
+const DATA = __DATA__;
+const root = document.getElementById('hairy-app');
+if (!root) return;
+const $ = id => document.getElementById(id);
+
+const DAY_MS = 864e5;
+const RATE = DATA.target.color, SOFT = '#5C7599', GRID = '#C9D6E6', BG = '#FFFFFF';
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const mq = q => !!(window.matchMedia && window.matchMedia(q).matches);
+const REDUCE_MOTION = mq('(prefers-reduced-motion: reduce)');
+
+// ---------------------------------------------------------------- dates
+// The page counts time in whole days since 1970-01-01, in UTC throughout, so
+// no local time zone can move a date by one.
+const ymd = day => { const t = new Date(day * DAY_MS); return [t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()]; };
+const dayOf = (y, m, d) => Math.round(Date.UTC(y, m, d || 1) / DAY_MS);
+const quarterStart = day => { const [y, m] = ymd(day); return dayOf(y, m - m % 3, 1); };
+const nextQuarterStart = day => { const [y, m] = ymd(day); return dayOf(y, m - m % 3 + 3, 1); };
+const fmtDay = day => { const [y, m, d] = ymd(day); return `${d} ${MON[m]} ${y}`; };
+const fmtMonth = day => { const [y, m] = ymd(day); return `${MON[m]} ${y}`; };
+const pct = v => v.toFixed(2) + '%';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+
+// ---------------------------------------------------------------- data
+// The target as change points. lo and hi are the range, equal before 2008;
+// mid is what the line draws.
+const R = {d: [], lo: [], hi: [], mid: [], end: DATA.rate.end};
+for (const [d, lo, hi] of DATA.rate.c) {
+  R.d.push(d); R.lo.push(lo); R.hi.push(hi); R.mid.push((lo + hi) / 2);
+}
+// Which change point is in effect on `day`; -1 outside the series.
+function rateIndex(day) {
+  if (day < R.d[0] || day > R.end) return -1;
+  let a = 0, b = R.d.length - 1;
+  while (a < b) { const m = (a + b + 1) >> 1; if (R.d[m] <= day) a = m; else b = m - 1; }
+  return a;
+}
+
+const SERIES = DATA.series.map((s, i) => Object.assign({}, s, {i, on: true}));
+const BY_KEY = {};
+SERIES.forEach(s => { BY_KEY[s.key] = s; });
+const ORDER = DATA.drawOrder.map(k => BY_KEY[k]);
+// NBER recessions as [peak, trough] days, shaded from peak to trough as on
+// FRED's graphs. Off until switched on.
+const RECS = DATA.recessions.spells, REC_FILL = '#E9EDF2';
+
+// Undo build.py's delta encoding: per hair, as_of, a point count, then
+// (days, basis points) pairs, each relative to the one before.
+function decode(s) {
+  const a = s.h, hairs = [];
+  let i = 0, asOf = 0;
+  while (i < a.length) {
+    asOf += a[i++];
+    const n = a[i++], px = new Array(n), py = new Array(n);
+    let x = asOf, y = 0;
+    for (let k = 0; k < n; k++) { x += a[i++]; y += a[i++]; px[k] = x; py[k] = y / 100; }
+    hairs.push(makeHair(s, asOf, px, py));
+  }
+  return hairs;
+}
+
+// The drawn path of one hair, as in the notebooks: it starts on the target
+// line at its forecast date, reading the target a day later because FRED
+// dates a change from the day it takes effect, then runs through its points.
+// Step series hold each value across its calendar quarter, the first quarter
+// clipped to the forecast date, and end at the last quarter's end.
+function makeHair(s, asOf, px, py) {
+  const vx = [], vy = [];
+  const ri = rateIndex(asOf + 1);
+  if (ri >= 0) { vx.push(asOf); vy.push(R.mid[ri]); }
+  if (s.step) {
+    const xs = px.map(d => Math.max(quarterStart(d), asOf)), ys = py.slice();
+    xs.push(nextQuarterStart(px[px.length - 1])); ys.push(py[py.length - 1]);
+    for (let k = 0; k < xs.length; k++) {
+      if (vx.length) { vx.push(xs[k]); vy.push(vy[vy.length - 1]); }
+      vx.push(xs[k]); vy.push(ys[k]);
+    }
+  } else {
+    for (let k = 0; k < px.length; k++) { vx.push(px[k]); vy.push(py[k]); }
+  }
+  return {s, asOf, px, py, vx, vy, x0: vx[0], x1: vx[vx.length - 1], ri};
+}
+SERIES.forEach(s => { s.hairs = decode(s); });
+
+// ---------------------------------------------------------------- ranges
+// The full x range is whatever the shown series span, or the target alone
+// when none is shown.
+function fullX() {
+  let a = Infinity, b = -Infinity;
+  for (const s of SERIES) if (s.on) for (const h of s.hairs) { if (h.x0 < a) a = h.x0; if (h.x1 > b) b = h.x1; }
+  if (a === Infinity) { a = R.d[0]; b = R.end; }
+  const pad = (b - a) * 0.02;
+  return [a - pad, b + pad];
+}
+
+const lerp = (xa, ya, xb, yb, x) => xb === xa ? yb : ya + (yb - ya) * (x - xa) / (xb - xa);
+
+// The y range that fits everything drawn between days x0 and x1: shown hairs,
+// including where they cross the edges, and the target line.
+function fitY(x0, x1) {
+  let lo = Infinity, hi = -Infinity;
+  const add = v => { if (v < lo) lo = v; if (v > hi) hi = v; };
+  for (const s of SERIES) {
+    if (!s.on) continue;
+    for (const h of s.hairs) {
+      if (h.x1 < x0 || h.x0 > x1) continue;
+      const vx = h.vx, vy = h.vy;
+      for (let j = 0; j < vx.length; j++) {
+        if (vx[j] >= x0 && vx[j] <= x1) add(vy[j]);
+        if (j && (vx[j - 1] < x0) !== (vx[j] < x0)) add(lerp(vx[j - 1], vy[j - 1], vx[j], vy[j], x0));
+        if (j && (vx[j - 1] > x1) !== (vx[j] > x1)) add(lerp(vx[j - 1], vy[j - 1], vx[j], vy[j], x1));
+      }
+    }
+  }
+  if (x1 >= R.d[0] && x0 <= R.end) {
+    let i = rateIndex(Math.max(x0, R.d[0]));
+    add(R.mid[i]);
+    for (i += 1; i < R.d.length && R.d[i] <= x1; i++) add(R.mid[i]);
+  }
+  if (lo === Infinity) { lo = 0; hi = 1; }
+  const pad = Math.max((hi - lo) * 0.06, 0.12);
+  return [lo - pad, hi + pad];
+}
+
+// ---------------------------------------------------------------- ticks
+const Y_STEPS = [0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5];
+function yTicks(y0, y1, ph) {
+  const want = Math.max(3, Math.min(9, Math.floor(ph / 38)));
+  const step = Y_STEPS.find(s => (y1 - y0) / s <= want) || 5;
+  const dec = step >= 1 ? 0 : (step === 0.25 || step === 0.05) ? 2 : 1;
+  const out = [];
+  for (let k = Math.ceil(y0 / step - 1e-9); k * step <= y1 + 1e-9; k++) {
+    const v = Math.abs(k * step) < 1e-9 ? 0 : k * step;
+    out.push({v, label: v.toFixed(dec) + '%'});
+  }
+  return out;
+}
+
+// Labels every 1, 3 or 6 months, or every 1, 2, 5 or 10 years, whichever is
+// the finest that fits; small unlabeled ticks one step finer.
+const X_STEPS = [1, 3, 6, 12, 24, 60, 120];
+function xTicks(d0, d1, pw) {
+  const months = (d1 - d0) / 30.44;
+  const room = Math.max(2, Math.floor(pw / 48));
+  const step = X_STEPS.find(m => months / m <= room) || 120;
+  const minor = step >= 24 ? 12 : step === 12 ? 3 : step > 1 ? 1 : 0;
+  const major = [], minors = [];
+  const ya = ymd(d0)[0], yb = ymd(d1)[0];
+  for (let y = ya; y <= yb; y++) {
+    for (let m = 0; m < 12; m++) {
+      const d = dayOf(y, m, 1);
+      if (d < d0 || d > d1) continue;
+      const idx = y * 12 + m;
+      if (idx % step === 0) major.push({d, label: step >= 12 || m === 0 ? String(y) : MON[m]});
+      else if (minor && idx % minor === 0) minors.push(d);
+    }
+  }
+  return {major, minors};
+}
+
+// ---------------------------------------------------------------- canvas
+const stage = $('ha-stage'), canvas = $('ha-canvas'), tip = $('ha-tip'), brush = $('ha-brush');
+const ctx = canvas.getContext('2d');
+// The hairs and axes are drawn once per view into an offscreen canvas. Hover
+// then only copies it back and draws one highlighted hair on top.
+const base = document.createElement('canvas');
+const bctx = base.getContext('2d');
+let W = 0, H = 0, dpr = 1, font = '12px sans-serif', geo = null;
+
+function resize() {
+  const w = Math.max(240, Math.round(stage.clientWidth));
+  // Wide and short on a desktop, close to square on a phone.
+  const h = Math.round(Math.max(300, Math.min(560, w * (w < 560 ? 1.05 : w < 760 ? 0.66 : 0.58))));
+  const r = Math.min(window.devicePixelRatio || 1, 3);
+  if (w === W && h === H && r === dpr) return false;
+  W = w; H = h; dpr = r;
+  canvas.width = base.width = Math.round(w * r);
+  canvas.height = base.height = Math.round(h * r);
+  canvas.style.height = h + 'px';
+  const family = (window.getComputedStyle ? getComputedStyle(root).fontFamily : '') || 'sans-serif';
+  font = `${w < 480 ? 11 : 11.5}px ${family}`;
+  return true;
+}
+
+// The target, or the middle of the target range, as a step line.
+function drawRate(c, X, Y, x0, x1) {
+  if (x1 < R.d[0] || x0 > R.end) return;
+  const a = Math.max(x0, R.d[0]);
+  let i = rateIndex(a);
+  c.beginPath();
+  c.moveTo(X(a), Y(R.mid[i]));
+  for (let j = i + 1; j < R.d.length && R.d[j] <= x1; j++) {
+    const x = X(R.d[j]);
+    c.lineTo(x, Y(R.mid[j - 1]));
+    c.lineTo(x, Y(R.mid[j]));
+    i = j;
+  }
+  c.lineTo(X(Math.min(x1, R.end)), Y(R.mid[i]));
+  c.globalAlpha = 1; c.strokeStyle = RATE; c.lineWidth = 2.25; c.lineJoin = 'round'; c.lineCap = 'round';
+  c.stroke();
+}
+
+function renderBase() {
+  const [x0, x1] = state.view.x, [y0, y1] = state.view.y;
+  const c = bctx;
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.globalAlpha = 1;
+  c.fillStyle = BG; c.fillRect(0, 0, W, H);
+  c.font = font;
+
+  const mt = 10, mr = 12, mb = 26;
+  const yt = yTicks(y0, y1, H - mt - mb);
+  let lw = 0;
+  for (const t of yt) lw = Math.max(lw, c.measureText(t.label).width);
+  const ml = Math.ceil(lw) + 10, pw = W - ml - mr, ph = H - mt - mb;
+  const X = d => ml + (d - x0) / (x1 - x0) * pw;
+  const Y = v => mt + (y1 - v) / (y1 - y0) * ph;
+
+  // Recession shading first, behind the gridlines and everything else.
+  if (state.rec) {
+    c.fillStyle = REC_FILL;
+    for (const [a, b] of RECS) {
+      if (b < x0 || a > x1) continue;
+      const xa = Math.max(ml, X(a)), xb = Math.min(ml + pw, X(b));
+      c.fillRect(xa, mt, Math.max(1, xb - xa), ph);
+    }
+  }
+
+  // Horizontal gridlines with their labels; no axis lines.
+  c.lineWidth = 1; c.strokeStyle = GRID; c.fillStyle = SOFT;
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (const t of yt) {
+    const y = Math.round(Y(t.v)) + 0.5;
+    c.beginPath(); c.moveTo(ml, y); c.lineTo(ml + pw, y); c.stroke();
+    c.fillText(t.label, ml - 7, y);
+  }
+  // Date ticks and labels under the plot.
+  const xt = xTicks(x0, x1, pw);
+  c.beginPath();
+  for (const d of xt.minors) { const x = Math.round(X(d)) + 0.5; c.moveTo(x, mt + ph + 1); c.lineTo(x, mt + ph + 3.5); }
+  for (const t of xt.major) { const x = Math.round(X(t.d)) + 0.5; c.moveTo(x, mt + ph + 1); c.lineTo(x, mt + ph + 6); }
+  c.strokeStyle = SOFT; c.lineWidth = 0.8; c.stroke();
+  // Centred under their ticks, but nudged inward rather than cut off at the
+  // canvas edges.
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  for (const t of xt.major) {
+    const half = c.measureText(t.label).width / 2;
+    c.fillText(t.label, Math.max(half + 1, Math.min(W - half - 1, X(t.d))), mt + ph + 9);
+  }
+
+  // Hairs, back to front, each stroked on its own so overlaps build up color.
+  // Opacity follows how many of a series' hairs are on screen, so a zoomed
+  // view with a few hairs draws them more strongly.
+  c.save();
+  c.beginPath(); c.rect(ml, mt - 3, pw, ph + 6); c.clip();
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const hits = [];
+  for (const s of ORDER) {
+    if (!s.on) continue;
+    const vis = s.hairs.filter(h => h.x1 >= x0 && h.x0 <= x1);
+    c.strokeStyle = s.color; c.lineWidth = s.width;
+    c.globalAlpha = Math.max(0.08, Math.min(0.55, s.k / Math.max(1, vis.length)));
+    for (const h of vis) {
+      const n = h.vx.length, xs = new Float32Array(n), ys = new Float32Array(n);
+      let bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity;
+      c.beginPath();
+      for (let j = 0; j < n; j++) {
+        const px = X(h.vx[j]), py = Y(h.vy[j]);
+        xs[j] = px; ys[j] = py;
+        if (px < bx0) bx0 = px; if (px > bx1) bx1 = px;
+        if (py < by0) by0 = py; if (py > by1) by1 = py;
+        if (j) c.lineTo(px, py); else c.moveTo(px, py);
+      }
+      c.stroke();
+      hits.push({h, xs, ys, bx0, bx1, by0, by1});
+    }
+  }
+  drawRate(c, X, Y, x0, x1);
+  c.restore();
+  geo = {ml, mt, pw, ph, X, Y, x0, x1, hits};
+}
+
+function trace(c, e) {
+  c.beginPath();
+  for (let j = 0; j < e.xs.length; j++) { if (j) c.lineTo(e.xs[j], e.ys[j]); else c.moveTo(e.xs[j], e.ys[j]); }
+}
+
+// Copy the base back, then, if a hair is hovered or tapped, fade everything
+// else, put the target line back on top, and draw that hair with a white halo
+// and its points.
+function compose() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.drawImage(base, 0, 0);
+  const h = state.pin || state.hover;
+  const e = h && geo && geo.hits.find(x => x.h === h);
+  if (!e) return;
+  const g = geo;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(g.ml, g.mt - 3, g.pw, g.ph + 6); ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillRect(g.ml, g.mt - 3, g.pw, g.ph + 6);
+  drawRate(ctx, g.X, g.Y, g.x0, g.x1);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  trace(ctx, e); ctx.globalAlpha = 0.95; ctx.strokeStyle = '#fff'; ctx.lineWidth = 6; ctx.stroke();
+  trace(ctx, e); ctx.globalAlpha = 1; ctx.strokeStyle = h.s.color; ctx.lineWidth = 2.5; ctx.stroke();
+  // Points too, unless there are so many they would merge into the line.
+  if (h.px.length <= 12) {
+    for (let k = 0; k < h.px.length; k++) {
+      ctx.beginPath(); ctx.arc(g.X(h.px[k]), g.Y(h.py[k]), 3.4, 0, 2 * Math.PI);
+      ctx.fillStyle = h.s.color; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff'; ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function draw() { renderBase(); compose(); }
+
+// ---------------------------------------------------------------- view
+// state.view is what is on screen, state.goal where it is heading. They differ
+// only while a change of range is animating.
+// hover is the hair under a mouse; pin is a hair clicked or tapped, which
+// stays highlighted with its window open until the plot is clicked again.
+const state = {view: null, goal: null, zoomed: false, hover: null, pin: null, rec: false};
+let anim = 0;
+const mix = (a, b, t) => a + (b - a) * t;
+function setView(x, y) {
+  state.goal = {x, y};
+  if (REDUCE_MOTION || !state.view || !W) { state.view = {x, y}; if (W) draw(); return; }
+  const from = state.view, t0 = performance.now(), dur = 280;
+  cancelAnimationFrame(anim);
+  const tick = now => {
+    const t = Math.min(1, (now - t0) / dur), k = 1 - Math.pow(1 - t, 3);
+    state.view = {x: [mix(from.x[0], x[0], k), mix(from.x[1], x[1], k)],
+                  y: [mix(from.y[0], y[0], k), mix(from.y[1], y[1], k)]};
+    draw();
+    if (t < 1) anim = requestAnimationFrame(tick);
+  };
+  anim = requestAnimationFrame(tick);
+}
+
+function refit() {
+  const x = state.zoomed ? state.goal.x : fullX();
+  setView(x, fitY(x[0], x[1]));
+}
+
+function zoomTo(a, b) {
+  if (b - a < 45) { const m = (a + b) / 2; a = m - 22.5; b = m + 22.5; }
+  state.zoomed = true; state.hover = null; state.pin = null; hideTip();
+  setView([a, b], fitY(a, b));
+  syncZoombar();
+}
+
+function resetZoom() {
+  if (!state.zoomed) return;
+  state.zoomed = false; state.hover = null; state.pin = null; hideTip();
+  refit();
+  syncZoombar();
+}
+
+function syncZoombar() {
+  $('ha-idle').hidden = state.zoomed;
+  $('ha-zoomed').hidden = !state.zoomed;
+  if (state.zoomed) $('ha-range').textContent = `Showing ${fmtMonth(state.goal.x[0])} to ${fmtMonth(state.goal.x[1])}`;
+}
+
+// ---------------------------------------------------------------- tooltip
+function closest(h, day) {
+  let best = 0;
+  for (let k = 1; k < h.px.length; k++) if (Math.abs(h.px[k] - day) < Math.abs(h.px[best] - day)) best = k;
+  return best;
+}
+
+// What one hair said, in at most five rows.
+function tipRows(h) {
+  const key = h.s.key;
+  if (key === 'sep_median') return h.px.map((d, k) => ['End ' + ymd(d)[0], h.py[k]]);
+  if (key === 'spf_median') return h.px.map((d, k) => { const [y, m] = ymd(d); return [`Q${Math.floor(m / 3) + 1} ${y}`, h.py[k]]; });
+  if (key === 'treasury_forward') {
+    return [[6, 'In 6 months'], [12, 'In 1 year'], [24, 'In 2 years'], [36, 'In 3 years']]
+      .map(([m, label]) => [label, h.py[closest(h, h.asOf + m * 30.4375)]]);
+  }
+  const ks = [...new Set([0, closest(h, h.asOf + 365), closest(h, h.asOf + 730), h.px.length - 1])].sort((a, b) => a - b);
+  return ks.map(k => [fmtMonth(h.px[k]), h.py[k]]);
+}
+
+function tipHTML(h) {
+  const s = h.s;
+  let target = '';
+  if (h.ri >= 0) {
+    const lo = R.lo[h.ri], hi = R.hi[h.ri];
+    target = ' &middot; target ' + (lo === hi ? pct(lo) : `${lo.toFixed(2)}&ndash;${pct(hi)}`);
+  }
+  let html = `<div class="ha-tip-h"><i style="background:${s.color}"></i>${esc(s.label)}</div>`
+    + `<div class="ha-tip-m">Made ${fmtDay(h.asOf)}${target}</div>`
+    + `<div class="ha-tip-k">${esc(s.about)}</div>`;
+  for (const [label, v] of tipRows(h)) html += `<div class="ha-tip-r"><span>${label}</span><b>${pct(v)}</b></div>`;
+  return html;
+}
+
+function showTip(h, mx, my, touch, pinned) {
+  tip.innerHTML = tipHTML(h) + (pinned
+    ? `<div class="ha-tip-f">${touch ? 'Tap an empty part of the plot to close' : 'Click the plot to close'}</div>` : '');
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x, y;
+  if (touch) {          // centred above the finger, or below it near the top
+    x = mx - tw / 2; y = my - th - 24;
+    if (y < 4) y = my + 24;
+  } else {              // beside the cursor, flipped near the edges
+    x = mx + 16; y = my + 16;
+    if (x + tw > W - 4) x = mx - tw - 16;
+    if (y + th > H - 4) y = my - th - 16;
+  }
+  x = Math.max(4, Math.min(W - tw - 4, x));
+  y = Math.max(4, Math.min(H - th - 4, y));
+  tip.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
+  tip.classList.add('on');
+}
+function hideTip() { tip.classList.remove('on'); }
+
+// ---------------------------------------------------------------- hit test
+function segDist2(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+  let t = L ? ((px - ax) * dx + (py - ay) * dy) / L : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const qx = ax + t * dx - px, qy = ay + t * dy - py;
+  return qx * qx + qy * qy;
+}
+const inPlot = (x, y) => geo && x >= geo.ml && x <= geo.ml + geo.pw && y >= geo.mt - 3 && y <= geo.mt + geo.ph + 3;
+
+// The hair passing closest to (mx, my), within r pixels. Ties go to the hair
+// drawn later, which is the one on top.
+function nearest(mx, my, r) {
+  if (!inPlot(mx, my)) return null;
+  let best = null, bd = r * r;
+  for (const e of geo.hits) {
+    if (mx < e.bx0 - r || mx > e.bx1 + r || my < e.by0 - r || my > e.by1 + r) continue;
+    for (let j = 1; j < e.xs.length; j++) {
+      const d = segDist2(mx, my, e.xs[j - 1], e.ys[j - 1], e.xs[j], e.ys[j]);
+      if (d <= bd) { bd = d; best = e.h; }
+    }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------- pointer
+// One set of Pointer Events handles mouse, pen and touch. A drag sideways
+// zooms. With a mouse, moving hovers, a click on a hair keeps its window open,
+// and the next click on the plot lets go and goes back to hovering. On a touch
+// screen a tap picks the nearest hair, a tap on empty plot lets go, and a
+// second tap in the same spot resets the zoom. Every handler is on the canvas
+// itself rather than delegated from the document, which iOS Safari would not
+// reliably deliver.
+let gest = null, lastTap = null, hoverAt = null, hoverRaf = 0;
+const local = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+const invX = px => geo.x0 + (px - geo.ml) / geo.pw * (geo.x1 - geo.x0);
+
+function showBrush(a, b) {
+  const x0 = Math.max(geo.ml, Math.min(a, b)), x1 = Math.min(geo.ml + geo.pw, Math.max(a, b));
+  brush.style.transform = `translate(${x0}px,${geo.mt}px)`;
+  brush.style.width = Math.max(0, x1 - x0) + 'px';
+  brush.style.height = geo.ph + 'px';
+  brush.hidden = false;
+}
+
+function doHover() {
+  hoverRaf = 0;
+  if (!hoverAt || gest || state.pin) return;
+  const [x, y] = hoverAt;
+  const h = nearest(x, y, 9);
+  if (h !== state.hover) { state.hover = h; compose(); }
+  if (h) showTip(h, x, y, false); else hideTip();
+}
+
+canvas.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const [x, y] = local(e);
+  gest = {id: e.pointerId, touch: e.pointerType !== 'mouse', x0: x, y0: y, x, y, brushing: false};
+  // Keeps a mouse drag alive past the edge of the canvas. A nicety, so it may
+  // fail quietly. Touch pointers are captured by the browser anyway.
+  if (!gest.touch) { try { canvas.setPointerCapture(e.pointerId); } catch (_) {} }
+});
+
+canvas.addEventListener('pointermove', e => {
+  const [x, y] = local(e);
+  if (gest && e.pointerId === gest.id) {
+    gest.x = x; gest.y = y;
+    const dx = Math.abs(x - gest.x0), dy = Math.abs(y - gest.y0);
+    // A finger has to travel clearly sideways before it counts as a zoom;
+    // anything more vertical is the page scrolling, which the browser handles.
+    if (!gest.brushing && (gest.touch ? dx > 10 && dx > dy * 1.2 : dx > 4)) {
+      gest.brushing = true;
+      state.hover = null; state.pin = null; hideTip(); compose();
+    }
+    if (gest.brushing) showBrush(gest.x0, x);
+    return;
+  }
+  if (e.pointerType === 'mouse') {
+    hoverAt = [x, y];
+    if (!hoverRaf) hoverRaf = requestAnimationFrame(doHover);
+  }
+});
+
+canvas.addEventListener('pointerup', e => {
+  if (!gest || e.pointerId !== gest.id) return;
+  const g = gest;
+  gest = null;
+  try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+  if (g.brushing) {
+    brush.hidden = true;
+    const a = Math.max(geo.ml, Math.min(g.x0, g.x)), b = Math.min(geo.ml + geo.pw, Math.max(g.x0, g.x));
+    if (b - a >= 12) zoomTo(invX(a), invX(b));
+    return;
+  }
+  if (!g.touch) {
+    if (state.pin) {
+      // Any click on the plot lets go of a kept hair, and hovering picks up
+      // again from where the pointer is.
+      state.pin = null; state.hover = null; hideTip(); compose();
+      hoverAt = [g.x, g.y]; doHover();
+    } else {
+      const h = nearest(g.x, g.y, 9);
+      if (h) { state.pin = h; state.hover = null; showTip(h, g.x, g.y, false, true); compose(); }
+    }
+    return;
+  }
+  const now = performance.now();
+  if (lastTap && now - lastTap.t < 350 && Math.hypot(g.x - lastTap.x, g.y - lastTap.y) < 32) {
+    lastTap = null;
+    state.pin = null; hideTip();
+    if (state.zoomed) resetZoom(); else compose();
+    return;
+  }
+  lastTap = {t: now, x: g.x, y: g.y};
+  const h = nearest(g.x, g.y, 22);
+  state.pin = h;
+  if (h) showTip(h, g.x, g.y, true, true); else hideTip();
+  compose();
+});
+
+canvas.addEventListener('pointercancel', () => { gest = null; brush.hidden = true; });
+
+canvas.addEventListener('pointerleave', e => {
+  // A lifted finger also fires pointerleave; that must not clear a tap. Nor
+  // does leaving the plot let go of a kept hair.
+  if (e.pointerType !== 'mouse' || gest || state.pin) return;
+  hoverAt = null;
+  if (state.hover) { state.hover = null; compose(); }
+  hideTip();
+});
+
+canvas.addEventListener('dblclick', e => { e.preventDefault(); resetZoom(); });
+
+// A click or tap anywhere off the plot also lets go of a kept hair. Capture
+// phase, so it runs before the clicked control's own handler.
+document.addEventListener('pointerdown', e => {
+  if (state.pin && e.target !== canvas) { state.pin = null; hideTip(); compose(); }
+}, true);
+
+root.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { state.pin = null; hideTip(); if (state.zoomed) resetZoom(); else compose(); }
+});
+
+$('ha-reset').addEventListener('click', resetZoom);
+
+// ---------------------------------------------------------------- legend
+// Series buttons carry data-s; the recessions button carries data-rec. "Show
+// all" is about the series only, so recessions stay as they are.
+const chips = Array.from(root.querySelectorAll('.ha-chip'));
+const isRec = b => 'rec' in b.dataset;
+function syncLegend() {
+  for (const b of chips) {
+    const on = isRec(b) ? state.rec : BY_KEY[b.dataset.s].on;
+    const label = isRec(b) ? DATA.recessions.label : BY_KEY[b.dataset.s].label;
+    b.setAttribute('aria-pressed', String(on));
+    b.title = (on ? 'Hide ' : 'Show ') + label;
+  }
+  $('ha-showall').hidden = SERIES.every(s => s.on);
+  const lines = SERIES.filter(s => s.on).map(s => s.source).concat(DATA.target.source);
+  if (state.rec) lines.push(DATA.recessions.source);
+  $('ha-sources').textContent = (lines.length > 1 ? 'Sources: ' : 'Source: ') + lines.join('; ') + '.';
+}
+// Shading changes nothing about the ranges, so it only redraws.
+function toggleRec(on) {
+  state.rec = on === undefined ? !state.rec : on;
+  syncLegend();
+  if (state.view) draw();
+}
+function toggle(s, on) {
+  s.on = on === undefined ? !s.on : on;
+  if (state.hover && !state.hover.s.on) state.hover = null;
+  if (state.pin && !state.pin.s.on) { state.pin = null; hideTip(); }
+  syncLegend();
+  refit();
+}
+for (const b of chips) b.addEventListener('click', () => (isRec(b) ? toggleRec() : toggle(BY_KEY[b.dataset.s])));
+$('ha-showall').addEventListener('click', () => {
+  SERIES.forEach(s => { s.on = true; });
+  syncLegend(); refit();
+});
+
+// ---------------------------------------------------------------- start
+resize();
+syncLegend();
+syncZoombar();
+setView(fullX(), fitY(...fullX()));
+if (window.ResizeObserver) new ResizeObserver(() => { if (resize() && state.view) draw(); }).observe(stage);
+else window.addEventListener('resize', () => { if (resize() && state.view) draw(); });
+
+// For check.js, which runs this script without a browser.
+if (window.HAIRY_TEST) {
+  window.HAIRY_TEST.api = {SERIES, R, RECS, rateIndex, quarterStart, nextQuarterStart, fullX, fitY,
+    xTicks, yTicks, nearest, zoomTo, resetZoom, toggle, toggleRec, tipHTML, tipRows, state, geo: () => geo, draw};
+}
+})();
+</script>

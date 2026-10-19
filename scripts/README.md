@@ -1,6 +1,6 @@
 # Getting the data
 
-Where each source lives and how to rebuild `data/` from it. For what the numbers mean, who produces them and the caveats, see [SOURCES.md](../SOURCES.md).
+Where each source lives and how to rebuild `data/` from it. For what the numbers mean, who produces them and the caveats, see [misc/SOURCES.md](../misc/SOURCES.md).
 
 Rendering the notebooks does not need any of this: `data/` is committed. Everything below downloads with no account, no API key and no payment. Downloads land in `raw-data/` and intermediate files in `out/`, about 100 MB together, and neither is committed.
 
@@ -16,7 +16,7 @@ Two files are downloaded by hand, once, because their servers refuse repeated sc
 ```bash
 mkdir -p raw-data/gsw raw-data/atlantafed
 curl -L -A "Mozilla/5.0" https://www.federalreserve.gov/data/yield-curve-tables/feds200628.csv -o raw-data/gsw/feds200628.csv
-curl -L -A "Mozilla/5.0" https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/cenfis/market-probability-tracker/mpt_histdata.xlsx -o raw-data/atlantafed/mpt_histdata.xlsx
+curl -L -A "Mozilla/5.0" https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/research-and-data/data/market-probability-tracker/mpt_histdata.xlsx -o raw-data/atlantafed/mpt_histdata.xlsx
 ```
 
 A plain `curl` with no user agent returns zero bytes from both. Then run the pipeline in order:
@@ -31,7 +31,7 @@ A plain `curl` with no user agent returns zero bytes from both. Then run the pip
 .venv/bin/python scripts/build_long_hairs.py
 ```
 
-The last two write the three files the notebooks read: `data/fed_funds_rate.csv`, `data/hairs.csv` and `data/treasury_forward_120m.csv`.
+The last two write everything in `data/`: `fed_funds_rate.csv`, `hairs.csv` and `treasury_forward_120m.csv`, which the notebooks read, and `nber_recessions.csv`, which only the interactive uses.
 
 ## 1. FRED, the policy rate and Treasury yields
 
@@ -41,16 +41,17 @@ Asking `fredgraph.csv` for several series at once returns a zip of per-frequency
 
 | series | what | from |
 |---|---|---|
-| `DFF` | effective federal funds rate, daily | 1954 |
 | `DFEDTAR` | target rate, single value | 1982 to 2008 |
 | `DFEDTARU`, `DFEDTARL` | target range, upper and lower | 2008 |
-| `FEDFUNDS` | effective rate, monthly average | 1954 |
 | `SOFR`, `IORB`, `OBFR` | the rates that now sit around fed funds | 2016 |
 | `DGS1MO` to `DGS10` | Treasury constant maturity yields | 1962 |
 | `DTB3`, `DTB6`, `DTB1YR` | Treasury bill secondary market | 1954 |
 | `FEDTARMD`, `FEDTARMDLR` | FOMC median projection, latest vintage only | 2012 |
+| `USREC` | NBER recession indicator, monthly | 1854 |
 
-`FEDTARMDLR` does double duty. Its observation dates are the 58 FOMC meetings that produced a Summary of Economic Projections, which is how `fetch_forecasts.py` knows which SEP PDFs to ask for without scraping a calendar.
+`USREC` is 1 in each month from the one after a business cycle peak through the trough. `build_dataset.py` turns each run of 1s back into a peak and a trough month, one row per recession in `data/nber_recessions.csv`, which match FRED's own list of recession-bar dates.
+
+`FEDTARMDLR` does double duty. Its observation dates are the 59 FOMC meetings that produced a Summary of Economic Projections, which is how `fetch_forecasts.py` knows which SEP PDFs to ask for without scraping a calendar.
 
 ## 2. Federal Reserve Board, the Treasury yield curve (GSW)
 
@@ -64,7 +65,7 @@ Before 1980 the Board fitted a four-parameter curve (Nelson-Siegel) rather than 
 
 `fetch_fomc_dates.py`, into `raw-data/fomc/`. Scrapes `fomchistorical{YYYY}.htm` for older years and `fomccalendars.htm` for current ones.
 
-Prefers the `monetary{YYYYMMDD}a.htm` statement links, since a hair should start the moment a decision became public, and falls back to "January 30-31 Meeting" heading text for years before statements were issued. 268 dates from February 1994, a median of eight scheduled meetings a year.
+Prefers the `monetary{YYYYMMDD}a.htm` statement links, since a hair should start the moment a decision became public, and falls back to "January 30-31 Meeting" heading text for years before statements were issued. 269 dates from February 1994, a median of eight scheduled meetings a year.
 
 federalreserve.gov intermittently drops connections when hit repeatedly. The fetcher retries three times with a backoff. If a year comes back empty, run it again.
 
@@ -72,9 +73,9 @@ federalreserve.gov intermittently drops connections when hit repeatedly. The fet
 
 `fetch_forecasts.py` downloads, `parse_sep.py` extracts, into `raw-data/sep/` and `out/sep_medians.csv`.
 
-58 PDFs at `federalreserve.gov/monetarypolicy/files/fomcprojtabl{YYYYMMDD}.pdf`, one per meeting that produced projections, January 2012 to now.
+59 PDFs at `federalreserve.gov/monetarypolicy/files/fomcprojtabl{YYYYMMDD}.pdf`, one per meeting that produced projections, January 2012 to now.
 
-Only 43 of the 58 yield a median. The median column was introduced with the September 2015 SEP. Before that the table carries a central tendency and a range, and the individual dots live in a figure rather than in text.
+Only 44 of the 59 yield a median. The median column was introduced with the September 2015 SEP. Before that the table carries a central tendency and a range, and the individual dots live in a figure rather than in text.
 
 Two layout quirks the parser handles. pdfplumber strips the spaces out of row labels in some vintages, so "Federal funds rate" arrives as "Federalfundsrate". And the header wraps in others, leaving "Variable" and "Longer" on one line and the projection years on the line above, so the year list is recovered from a window of neighbouring lines. The parse is checked against FRED: the most recent meeting's medians match `FEDTARMD` and `FEDTARMDLR` exactly.
 
@@ -82,7 +83,7 @@ Two layout quirks the parser handles. pdfplumber strips the spaces out of row la
 
 `fetch_forecasts.py`, into `raw-data/spf/`. Median 3-month Treasury bill level, quarterly, back to 1981, from <https://www.philadelphiafed.org/-/media/frbp/assets/surveys-and-data/survey-of-professional-forecasters/data-files/files/median_tbill_level.xlsx>.
 
-The horizon numbering is counterintuitive. `TBILL1` is the quarter before the survey, whose value the forecasters already know, so it is not a forecast and is dropped. `TBILL2` is the current quarter, and `TBILL3` to `TBILL6` are the four quarters after it. `TBILLA` to `TBILLD` are annual averages and are not used. See `SOURCES.md` for the verbatim definition.
+The horizon numbering is counterintuitive. `TBILL1` is the quarter before the survey, whose value the forecasters already know, so it is not a forecast and is dropped. `TBILL2` is the current quarter, and `TBILL3` to `TBILL6` are the four quarters after it. `TBILLA` to `TBILLD` are annual averages and are not used. See `misc/SOURCES.md` for the verbatim definition.
 
 ## 6. Atlanta Fed Market Probability Tracker
 

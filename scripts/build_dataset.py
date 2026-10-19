@@ -4,16 +4,18 @@ Everything the notebooks and the interactive page read comes from here, so the
 plotting code never touches raw-data/ and never has to know how a given source
 was shaped.
 
-  data/fed_funds_rate.csv   one row per day: the policy rate, in several forms
+  data/fed_funds_rate.csv   one row per day: the FOMC target, or target range
   data/hairs.csv            one row per (source, as_of, target_date): an
                             expected rate
+  data/nber_recessions.csv  one row per recession: NBER peak and trough
+                            months, for the interactive's shading
 
 Four hair sources, deliberately kept in one table with a `source` column so a
 plot can color by it:
 
   treasury_forward  Treasury forward curve from the GSW Svensson parameters.
                     Daily since 1961, sampled here at FOMC meetings. Smooth by
-                    construction, see SOURCES.md.
+                    construction, see misc/SOURCES.md.
   options_implied   Atlanta Fed Market Probability Tracker, the mean of the
                     distribution implied by CME options on 3-month SOFR. 2023
                     onward only, but genuinely market-implied.
@@ -43,19 +45,34 @@ def build_trunk() -> pd.DataFrame:
     pol = pol.sort_values("date").reset_index(drop=True)
 
     t = pd.DataFrame({"date": pol["date"]})
-    t["effr"] = pol["DFF"]
-    # The daily effective rate spikes hard on month, quarter and year ends in
-    # the pre-2008 regime, when the Fed hit its target through open market
-    # operations rather than a floor system. Those spikes are real, not bad
-    # data, but they swamp the trunk in the 1990s. JPMorgan's version of this
-    # chart plots a 1-month moving average for exactly this reason.
-    t["effr_ma1m"] = (
-        pol.set_index("date")["DFF"].rolling("30D", min_periods=10).mean().to_numpy()
-    )
     t["target_lo"] = pol["DFEDTARL"].fillna(pol["DFEDTAR"])
     t["target_hi"] = pol["DFEDTARU"].fillna(pol["DFEDTAR"])
     t["target_mid"] = (t["target_lo"] + t["target_hi"]) / 2
-    return t
+    # The target series begins in September 1982.
+    return t.dropna(subset=["target_mid"]).reset_index(drop=True)
+
+
+def build_recessions() -> pd.DataFrame:
+    """NBER recessions as peak and trough months, the dates FRED shades.
+
+    USREC is 1 in each month from the one after a business cycle peak through
+    the trough, so each run of 1s is one recession: the peak is the month
+    before the run starts and the trough is its last month. Dates are the
+    first of the month, as FRED lists them.
+    """
+    r = pd.read_csv(RAW / "fred" / "recessions_monthly.csv", parse_dates=["date"])
+    r = r.dropna(subset=["USREC"]).sort_values("date").reset_index(drop=True)
+    on = r["USREC"].eq(1)
+    first = on & ~on.shift(1, fill_value=False)
+    last = on & ~on.shift(-1, fill_value=False)
+    spells = pd.DataFrame({
+        "peak": r.loc[first, "date"].reset_index(drop=True) - pd.DateOffset(months=1),
+        "trough": r.loc[last, "date"].reset_index(drop=True),
+    })
+    # A recession already under way at the first observation has no known peak.
+    if on.iloc[0]:
+        spells = spells.iloc[1:]
+    return spells.reset_index(drop=True)
 
 
 def hairs_treasury(meetings: pd.Series) -> pd.DataFrame:
@@ -163,9 +180,17 @@ def main() -> int:
     DATA.mkdir(parents=True, exist_ok=True)
 
     trunk = build_trunk()
-    trunk.to_csv(DATA / "fed_funds_rate.csv", index=False)
+    trunk.to_csv(DATA / "fed_funds_rate.csv", index=False, date_format="%Y-%m-%d")
     print(f"fed_funds_rate.csv  {len(trunk):,} days, "
           f"{trunk['date'].min():%Y-%m-%d} to {trunk['date'].max():%Y-%m-%d}")
+
+    if (RAW / "fred" / "recessions_monthly.csv").exists():
+        rec = build_recessions()
+        rec.to_csv(DATA / "nber_recessions.csv", index=False, date_format="%Y-%m-%d")
+        print(f"nber_recessions.csv {len(rec)} recessions, the latest "
+              f"{rec['peak'].iloc[-1]:%Y-%m} to {rec['trough'].iloc[-1]:%Y-%m}")
+    else:
+        print("nber_recessions.csv skipped: no USREC download; run fetch_fred.py")
 
     fomc = pd.read_csv(RAW / "fomc" / "fomc_meetings.csv", parse_dates=["meeting_date"])
     meetings = fomc.loc[fomc["is_scheduled"], "meeting_date"]
@@ -179,6 +204,10 @@ def main() -> int:
     ]:
         try:
             p = fn()
+            # Every hair starts from the target on its forecast date, so drop
+            # any made before the target series begins in September 1982: five
+            # SPF surveys.
+            p = p[p["as_of"] >= trunk["date"].min()]
             parts.append(p)
             print(f"  {name:18s} {len(p):>8,} points, "
                   f"{p['as_of'].nunique():>4} hairs, "
@@ -190,7 +219,10 @@ def main() -> int:
     hairs = hairs[
         ["source", "as_of", "target_date", "horizon_months", "rate_pct"]
     ].sort_values(["source", "as_of", "horizon_months"])
-    hairs.to_csv(DATA / "hairs.csv", index=False)
+    # Some sources place points a fractional number of days ahead; a day is
+    # plenty of resolution, and plain dates keep the file small.
+    hairs["target_date"] = pd.to_datetime(hairs["target_date"]).dt.floor("D")
+    hairs.to_csv(DATA / "hairs.csv", index=False, date_format="%Y-%m-%d")
 
     print(f"\nhairs.csv  {len(hairs):,} points, "
           f"{hairs['as_of'].nunique():,} distinct hair dates, "
@@ -198,7 +230,7 @@ def main() -> int:
 
     # Sanity: a hair should start near the policy rate it branches off.
     print("\nsanity, front of hair vs trunk on the same day:")
-    tr = trunk.set_index("date")["effr_ma1m"]
+    tr = trunk.set_index("date")["target_mid"]
     for src, g in hairs.groupby("source"):
         front = g.sort_values("horizon_months").groupby("as_of").first()
         j = front.join(tr.rename("trunk"), how="inner").dropna()

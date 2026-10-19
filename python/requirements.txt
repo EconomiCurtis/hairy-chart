@@ -1,0 +1,10 @@
+pandas>=2.2
+numpy>=1.26
+altair>=5.5
+vl-convert-python>=1.7
+great_tables>=0.17
+# Quarto runs the notebook through a Jupyter kernel
+nbformat>=5.10
+nbclient>=0.10
+ipykernel>=6.29
+pyyaml>=6.0

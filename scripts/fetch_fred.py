@@ -19,10 +19,9 @@ UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 
 # Each group becomes one CSV. Series inside a group share an observation index.
 GROUPS = {
-    # The trunk. DFF is the effective rate back to 1954; DFEDTAR is the single
-    # target through Dec 2008; DFEDTARU/L are the target range after that.
-    "policy_rate_daily": ["DFF", "DFEDTAR", "DFEDTARU", "DFEDTARL"],
-    "policy_rate_monthly": ["FEDFUNDS"],
+    # The target. DFEDTAR is the single target through Dec 2008; DFEDTARU/L
+    # are the target range after that.
+    "policy_rate_daily": ["DFEDTAR", "DFEDTARU", "DFEDTARL"],
     # Overnight rates that succeeded or sit alongside fed funds.
     "overnight_other": ["SOFR", "IORB", "OBFR"],
     # Treasury constant-maturity yields, for validating the GSW forward curve
@@ -35,6 +34,9 @@ GROUPS = {
     # The FOMC's own projections, latest vintage only. Historical vintages come
     # from the SEP PDFs instead: ALFRED is not reachable from here.
     "sep_latest": ["FEDTARMD", "FEDTARMDLR"],
+    # NBER recession indicator: 1 in each month from the one after a business
+    # cycle peak through the trough. The interactive's recession shading.
+    "recessions_monthly": ["USREC"],
 }
 
 
@@ -67,8 +69,9 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     failures = []
     for name, series in GROUPS.items():
-        # SEP observations are projection years, so no start-date filter.
-        cosd = "1900-01-01" if name.startswith("sep") else "1954-01-01"
+        # SEP observations are projection years, and the recession indicator is
+        # read in full so every recession has its peak, so no start-date filter.
+        cosd = "1800-01-01" if name.startswith(("sep", "recessions")) else "1954-01-01"
         try:
             df = fetch(series, cosd=cosd)
         except Exception as exc:  # noqa: BLE001

@@ -1,0 +1,133 @@
+/* Styles for the write-up, index.qmd.
+
+   The "Hairy Plots in the Wild" gallery uses the website's /js/postcards.js,
+   which turns a `::: {.photo-gallery}` block into a thumbnail grid that opens a
+   lightbox. That script brings no CSS of its own: these rules are copied from
+   posts/005-pct-2025/styles.css, the other post that uses it. Moving them into
+   the site's styles/common.scss would let both posts share one copy.
+
+   postcards.js also replaces the page's table of contents with a flat list on
+   every page that loads it, so the flat-TOC rules come along too. */
+
+/* --- thumbnail grid, once postcards.js has enhanced the gallery --- */
+.pc-gallery-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; }
+.pc-gallery-grid button { padding: 0; border: 0; background: none; cursor: pointer; border-radius: 6px; }
+.pc-gallery-grid button:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; }
+.pc-thumb { display: block; aspect-ratio: 4 / 3; overflow: hidden; border-radius: 6px; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); }
+/* Charts, not photos: shown whole on white rather than cropped to fill the box. */
+.pc-thumb img { width: 100%; height: 100%; object-fit: contain; background: #fff; display: block; transition: transform .3s; }
+.pc-gallery-grid button:hover .pc-thumb img { transform: scale(1.05); }
+@media (max-width: 520px) { .pc-gallery-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* --- the same grid without the script (or before it runs) --- */
+.photo-gallery { margin: 1.7rem 0; }
+.photo-gallery:not(.pc-ready) { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; }
+.photo-gallery:not(.pc-ready) p { display: contents; margin: 0; }
+.photo-gallery:not(.pc-ready) img {
+  width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #fff; display: block;
+  border-radius: 6px; box-shadow: 0 2px 10px rgba(0, 0, 0, .18);
+}
+@media (max-width: 520px) { .photo-gallery:not(.pc-ready) { grid-template-columns: repeat(2, 1fr); } }
+
+/* --- a pair of small thumbnails inside the text, with a line under them --- */
+.photo-gallery.gallery-pair { max-width: 28rem; margin: 1.2rem 0 .4rem; }
+.photo-gallery.gallery-pair .pc-gallery-grid,
+.photo-gallery.gallery-pair:not(.pc-ready) { grid-template-columns: repeat(2, 1fr); }
+.pair-caption { max-width: 28rem; font-size: .85rem; color: var(--muted); margin: 0 0 1.4rem; }
+.pair-caption p { margin: 0; }
+
+/* --- lightbox --- */
+.pc-lb {
+  /* 1100, above the site's fixed header (1030), which otherwise covers the
+     close button. The PCT post's copy has 1000. */
+  position: fixed; inset: 0; z-index: 1100; display: none; place-items: center;
+  background: rgba(15, 12, 6, .85); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  padding: clamp(.8rem, 3vw, 2rem);
+  cursor: pointer;   /* so tap-on-backdrop-to-close fires on iOS Safari */
+  /* Not in the PCT post: if a caption still doesn't fit, scroll to it rather
+     than cut it off. */
+  overflow-y: auto; overscroll-behavior: contain;
+}
+.pc-lb__stage, .pc-lb__img { cursor: default; }
+.pc-lb.open { display: grid; }
+.pc-lb__stage { max-width: min(920px, 92vw); display: grid; gap: .7rem; justify-items: center; }
+/* The image leaves room for the caption under it: these captions run several
+   lines, so the PCT post's 88vh pushed their source lines off a laptop screen.
+   Sized by its own proportions within both limits (the PCT post fixes the
+   width), so a height-limited image isn't letterboxed inside a wider box and
+   the shadow and arrows sit on the image itself. Images narrower than the
+   limit show at their own size rather than blurrily enlarged. */
+.pc-lb__img {
+  width: auto; height: auto; max-width: min(920px, 92vw); border-radius: 4px; box-shadow: 0 20px 54px rgba(0, 0, 0, .5);
+  max-height: calc(88vh - 9rem); max-height: calc(88dvh - 9rem);
+}
+.pc-lb__x {
+  position: absolute; top: 1rem; right: 1rem; width: 2.6rem; height: 2.6rem; border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, .3); background: rgba(0, 0, 0, .4); color: #fff; font-size: 1.2rem; cursor: pointer; line-height: 1;
+  display: grid; place-items: center; padding: 0;
+}
+/* Not in the PCT post: the arrows are centered on the image (postcards.js puts
+   them in .pc-lb__frame with it) rather than on the screen, since a long
+   caption pushes the image up. Each is a CSS chevron pinned to the middle of
+   its circle by absolute positioning; the text arrows, and a chevron centered
+   by grid, both sat off-center in iOS Safari, which lays out button contents
+   its own way. */
+.pc-lb__frame { position: relative; }
+.pc-lb__nav {
+  position: absolute; top: 50%; transform: translateY(-50%); width: 3rem; height: 3rem; border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, .3); background: rgba(0, 0, 0, .45); cursor: pointer;
+  padding: 0; font-size: 0; color: transparent;
+}
+.pc-lb__nav::before {
+  content: ""; position: absolute; top: 50%; left: 50%; width: .7rem; height: .7rem;
+  border: solid #fff; border-width: 0 0 2px 2px;
+}
+/* -50% would center the box; the chevron's weight sits toward its point, so
+   it is nudged the other way to look centered. */
+.pc-lb__prev::before { transform: translate(-30%, -50%) rotate(45deg); }
+.pc-lb__next::before { transform: translate(-70%, -50%) rotate(-135deg); }
+/* Beside the image when the screen has room for them, over its edges when not. */
+.pc-lb__prev { left: -4.2rem; }
+.pc-lb__next { right: -4.2rem; }
+@media (max-width: 1100px) {
+  .pc-lb__prev { left: .5rem; }
+  .pc-lb__next { right: .5rem; }
+}
+@media (max-width: 600px) {
+  .pc-lb__nav { width: 2.4rem; height: 2.4rem; }
+  .pc-lb__nav::before { width: .55rem; height: .55rem; }
+}
+.pc-lb__x:hover, .pc-lb__nav:hover { background: rgba(0, 0, 0, .7); }
+.pc-lb__x:focus-visible, .pc-lb__nav:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+/* Captions here are whole source entries rather than a few words, so they are
+   set smaller, left-aligned and in gray (the PCT post's are larger and near
+   white). Titles and links are a lighter gray, still short of white. */
+.pc-lb__cap { max-width: min(920px, 92vw); color: #b3aea6; font-family: var(--display); font-size: .8rem; line-height: 1.5; text-align: left; }
+.pc-lb__cap a, .pc-lb__cap strong { color: #d9d5ce; }
+.pc-lb__cap a { text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.pc-lb__dots { display: flex; gap: .4rem; }
+.pc-lb__dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .35); }
+.pc-lb__dots i.on { background: #fff; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-thumb img { transition: none; }
+}
+
+/* --- flat table of contents, built by postcards.js --- */
+#TOC ul.pc-toc-flat { list-style: none; margin: 0; padding: 0; border-left: 0; }
+#TOC ul.pc-toc-flat li { margin: 0; padding: 0; }
+#TOC ul.pc-toc-flat a {
+  display: block;
+  padding: .2rem 0 .2rem .7rem;
+  border-left: 2px solid transparent;
+  color: var(--muted);
+  font-family: var(--display);
+  font-size: .82rem;
+  line-height: 1.25;
+  text-decoration: none;
+  transition: color .12s, border-color .12s;
+}
+#TOC ul.pc-toc-flat a:hover { color: var(--text); }
+#TOC ul.pc-toc-flat a.active { color: var(--green); border-left-color: var(--green); }
+/* Not in the PCT post: this one has sub-sections, so they keep an indent. */
+#TOC ul.pc-toc-flat a.pc-toc-h3 { padding-left: 1.5rem; }

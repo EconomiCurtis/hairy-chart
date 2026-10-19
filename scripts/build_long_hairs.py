@@ -55,8 +55,8 @@ def main() -> int:
             "as_of": p["meeting"].dt.date,
             "target_date": (p["meeting"] + pd.to_timedelta(months * 30.4375, unit="D")).dt.date,
             "horizon_months": months,
-            # Continuous to annual compounding, as in build_gsw_hairs.py.
-            "rate_pct": ((np.exp(f / 100.0) - 1.0) * 100.0).round(4),
+            # Left continuously compounded, as in build_gsw_hairs.py.
+            "rate_pct": f.round(4),
         }))
     d = pd.concat(frames, ignore_index=True).sort_values(["as_of", "horizon_months"])
 

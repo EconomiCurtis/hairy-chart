@@ -95,7 +95,11 @@ def main() -> int:
                 {
                     "as_of": df["Date"].to_numpy(),
                     "horizon_months": int(round(n * 12)),
-                    "fwd_cc": f,
+                    # Left continuously compounded. Fed funds is an overnight
+                    # rate quoted as simple interest, which continuous
+                    # compounding is close to; annual compounding would lift
+                    # the hairs, by about 0.13 points at a 5% rate.
+                    "fwd_pct": f,
                 }
             )
         )
@@ -105,9 +109,6 @@ def main() -> int:
     tidy["target_date"] = tidy["as_of"] + pd.to_timedelta(
         tidy["horizon_months"] * 30.4375, unit="D"
     )
-    # Continuously compounded to annually compounded, so the hairs are on the
-    # same footing as a quoted policy rate.
-    tidy["fwd_pct"] = (np.exp(tidy["fwd_cc"] / 100.0) - 1.0) * 100.0
     tidy = tidy.sort_values(["as_of", "horizon_months"]).reset_index(drop=True)
 
     path = OUT / "gsw_forward_curves.parquet"

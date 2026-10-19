@@ -1,0 +1,48 @@
+---
+title: "The Hairy Plot"
+subtitle: "US federal funds target rate, with expected rate paths"
+---
+
+<!--
+The prose for the interactive plot. Edit here, then rebuild:
+
+    python3 interactive/_app/build.py && node interactive/_app/check.js
+    quarto render interactive/index.qmd
+
+The front matter sets the plot's title and subtitle. "## Notes" is the one
+section build.py reads, and the heading is its lookup key: it becomes the
+collapsed Notes panel under the plot. Each `::: {.ha-callout data-series="..."}`
+block is one series' note, edged in that series' color; the data-series values
+are the keys in build.py's SERIES, plus "target" for the target rate.
+
+Paragraphs are never hard-wrapped (one paragraph is one line), and no em-dashes.
+-->
+
+## Notes
+
+::: {.ha-callout data-series="target"}
+**Federal Funds Target Rate.** The rate the Federal Open Market Committee announces it is aiming for. A single number until December 2008, a quarter-point range from then on; the line marks the middle of the range.
+:::
+
+::: {.ha-callout data-series="treasury_forward"}
+**Treasury Forward Curve.** What the Treasury bond market implies about future short rates, backed out daily by Federal Reserve Board staff from a smooth curve fitted across the whole maturity spectrum. A forward rate is the expected future short rate plus a term premium, so it is not a pure expectation. One hair per FOMC meeting, since 1994.
+
+::: {.ha-callout data-series="options_implied"}
+**Options-Implied (SOFR).** What options traders are collectively betting, as a full probability distribution over where the overnight rate will average in a future three-month window. Each hair is the mean for each upcoming window, as of one day. Daily since March 2023.
+:::
+
+::: {.ha-callout data-series="sep_median"}
+**FOMC Median Projection.** Four times a year each of the Federal Reserve's senior policymakers writes down where they think the federal funds rate *should* be at the end of each of the next few years. This is the middle answer, published since September 2015.
+:::
+
+::: {.ha-callout data-series="spf_median"}
+**Professional Forecasters.** Every quarter the Philadelphia Fed asks a few dozen professional forecasters where the three-month Treasury bill rate will be over the next five quarters, and publishes the median. The bill normally sits a little below fed funds, so a forecast of the bill rate works as a rough forecast of the policy rate that runs slightly low. 
+:::
+
+::: {.ha-callout data-series="recessions"}
+**Recessions.** US recessions, shaded from the business cycle peak to the trough, using the turning points determined by the National Bureau of Economic Research (NBER).
+:::
+
+Each hair starts on the target line at the date its forecast was made, and runs from there to the source's first forecast.
+
+The [R notebook](../r/) and the [Python notebook](../python/) walk through how to access the data and build each series, with each publisher's own description and links to the source data.

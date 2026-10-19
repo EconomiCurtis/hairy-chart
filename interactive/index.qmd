@@ -1,0 +1,23 @@
+---
+title: "The Hairy Chart, Interactive"
+description: "The federal funds target rate since 1982, with the paths expected for it at each past date, from four free sources."
+date: "2026-10-17"
+categories: [Project, Data Visualization]
+image: ../plots/interactive.jpg
+draft: false
+toc: false
+format:
+  html:
+    # The plot is injected verbatim rather than written here as markdown, so
+    # pandoc never sees its markup, script or data.
+    #
+    # TO EDIT ITS TEXT (plot title, subtitle, Notes): edit _app/text.qmd, then
+    #
+    #     python3 interactive/_app/build.py && node interactive/_app/check.js
+    #     quarto render interactive/index.qmd
+    #
+    # build.py regenerates _hairy-app.html from _app/template.html, the prose
+    # and data/. Commit both: the site build has no Python. The leading
+    # underscores keep Quarto from treating either as a page.
+    include-after-body: _hairy-app.html
+---
